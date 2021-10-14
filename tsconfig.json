@@ -1,7 +1,11 @@
 {
     "compilerOptions": {
         "module": "commonjs",
-        "target": "ESNext",
+        "esModuleInterop": true,
+        "types": [
+            "node"
+        ],
+        "target": "ES6",
         "sourceMap": false,
         "outDir": "./bin"
     },

@@ -21,21 +21,71 @@
  * @created : 10/13/2021
  */
 
-const express = require("express");
+import http from "http";
+import PouchDB from "pouchdb";
+import express from "express";
+import usePouchDB from "express-pouchdb";
+const MemoryDB = PouchDB.defaults({
+    db: require("memdown")
+});
 
-async function configureRoutes(app: typeof express): Promise<typeof express>  {
+const portNum: number = process.argv.length > 2
+    ? parseInt(process.argv[2])
+    : 8000;
+
+const connectPort: number|null = process.argv.length > 3
+    ? parseInt(process.argv[3])
+    : null;
+
+let server: http.Server = null;
+
+async function configureRoutes(app: express.Application): Promise<express.Application> {
     app.get("/", function(request, response) {
         response.send("Hello, world!\n");
     });
 
+    app.use("/db", usePouchDB(MemoryDB));
+
     return app;
 }
 
-if (require.main === module) {
-    configureRoutes(express())
-        .then(app => {
-            app.listen(8000, () => {
-                console.log("Listening on port 8000");
-            });
-        });
+async function main(): Promise<void> {
+    const sendString = connectPort === null
+        ? "Initial value"
+        : "This document has been changed!";
+
+    const db = new MemoryDB("local");
+    await db.put({
+        _id: "testdoc",
+        value: sendString,
+    });
+
+    if (connectPort !== null) {
+        console.info("Posting data to another server");
+        const remoteDb = new MemoryDB(`http://localhost:${connectPort}/db/local`);
+        await db.replicate.to(remoteDb);
+    }
+
+    db.changes({
+        live: true,
+    }).on("change", function(change) {
+        console.log("Got a change!");
+        db.get(change.id).then(doc => console.log(doc));
+    });
 }
+
+configureRoutes(express())
+    .then(app => {
+        server = app.listen(portNum, () => {
+            console.log(`Listening on port ${portNum}`);
+        });
+    })
+    .then(main)
+    .catch(err => {
+        console.error(err);
+        if (server !== null) {
+            server = server.close(serverErr => {
+                console.error(serverErr);
+            });
+        }
+    });
