@@ -6,6 +6,7 @@
   "scripts": {
     "build": "tsc",
     "start": "node bin/munkey.js",
+    "clean": "rm -rf bin node_modules",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -13,12 +14,14 @@
   "license": "MIT",
   "devDependencies": {
     "@types/express": "^4.17.13",
-    "@types/node": "^16.10.9",
+    "@types/pouchdb-core": "^7.0.8",
+    "@types/pouchdb-node": "^6.1.4",
     "typescript": "^4.4.4"
   },
   "dependencies": {
     "express": "^4.17.1",
     "express-pouchdb": "^4.2.0",
+    "memdown": "^6.1.1",
     "pouchdb": "^7.2.2"
   }
 }

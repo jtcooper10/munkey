@@ -1,8 +1,21 @@
 {
     "compilerOptions": {
         "module": "commonjs",
-        "target": "ESNext",
+        "esModuleInterop": true,
+        "moduleResolution": "node",
+        "target": "ES6",
         "composite": true,
-        "sourceMap": false
-    }
+        "sourceMap": true,
+        "types": [
+            "node"
+        ],
+        "lib": [
+            "es2015"
+        ],
+        "outDir": "bin"
+    },
+    "include": [
+        "munkey.ts",
+        "command.ts"
+    ]
 }
