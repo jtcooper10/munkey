@@ -1,0 +1,24 @@
+{
+  "name": "munkey",
+  "version": "0.0.1",
+  "description": "Peer-to-peer cryptographic password manager",
+  "main": "bin/munkey.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node bin/munkey.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "Joshua Cooper",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/express": "^4.17.13",
+    "@types/node": "^16.10.9",
+    "typescript": "^4.4.4"
+  },
+  "dependencies": {
+    "express": "^4.17.1",
+    "express-pouchdb": "^4.2.0",
+    "pouchdb": "^7.2.2"
+  }
+}

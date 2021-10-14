@@ -1,0 +1,16 @@
+{
+    "compilerOptions": {
+        "module": "commonjs",
+        "target": "ESNext",
+        "sourceMap": false,
+        "outDir": "./bin"
+    },
+    "references": [
+        {
+            "path": "./munkey"
+        }
+    ],
+    "exclude": [
+        "node_modules"
+    ]
+}
