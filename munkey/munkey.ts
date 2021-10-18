@@ -25,6 +25,8 @@ import http from "http";
 import PouchDB from "pouchdb";
 import express from "express";
 import usePouchDB from "express-pouchdb";
+import { CommandServer } from "./command";
+
 const MemoryDB = PouchDB.defaults({
     db: require("memdown")
 });
@@ -50,36 +52,109 @@ async function configureRoutes(app: express.Application): Promise<express.Applic
 }
 
 async function main(): Promise<void> {
-    const sendString = connectPort === null
-        ? "Initial value"
-        : "This document has been changed!";
+    const vaultDb = new MemoryDB("vault");
 
-    const db = new MemoryDB("local");
-    await db.put({
-        _id: "testdoc",
-        value: sendString,
-    });
+    const commands: CommandServer = new class extends CommandServer {
+        private currentVault?: string = null;
 
-    if (connectPort !== null) {
-        console.info("Posting data to another server");
-        const remoteDb = new MemoryDB(`http://localhost:${connectPort}/db/local`);
-        await db.replicate.to(remoteDb);
-    }
+        async onCreateVault(vaultName: string): Promise<void> {
+            console.info(`Creating new vault (${vaultName})`);
 
-    db.changes({
-        live: true,
-    }).on("change", function(change) {
-        console.log("Got a change!");
-        db.get(change.id).then(doc => console.log(doc));
-    });
+            await vaultDb.put({
+                _id: vaultName,
+                entries: {},
+            })
+            .then(() => {
+                this.currentVault = vaultName;
+            })
+            .catch(err => {
+                if (err.status === 409) {
+                    console.error(`Cannot create vault ${vaultName} (already exists)`);
+                }
+                else {
+                    console.error(err);
+                }
+            });
+        }
+
+        async onAddVaultEntry(entryKey: string, data: string): Promise<void> {
+            if (this.currentVault === null) {
+                console.error("No vault selected; please select or create a vault");
+                return Promise.resolve();
+            }
+
+            console.info(`Adding new vault entry to ${this.currentVault}`);
+            const vault = await vaultDb.get(this.currentVault)
+                .catch(err => console.error(err));
+
+            if (vault) {
+                const { entries } = vault;
+                if (entryKey in entries) {
+                    console.error("Entry already exists");
+                    return Promise.resolve();
+                }
+
+                await vaultDb.put({
+                    _id: this.currentVault,
+                    _rev: vault._rev,
+                    entries: { ...entries, [entryKey]: data },
+                }).catch(err => console.error(err));
+            }
+        }
+
+        async onGetVaultEntry(entryKey: string): Promise<void> {
+            if (this.currentVault === null) {
+                console.error("No vault selected; please select or create a vault");
+                return Promise.resolve();
+            }
+
+            const vault = await vaultDb.get(this.currentVault)
+                .catch(err => console.error(err));
+            
+            if (vault) {
+                const data = vault.entries[entryKey];
+                if (!data) {
+                    console.error("Vault entry not found");
+                }
+                else {
+                    console.info(`[${entryKey}] = ${data}`);
+                }
+            }
+        }
+
+        async onUnknownCommand(command: string, args: string[]): Promise<void> {
+            if (["q", "quit", "exit"].includes(command.toLowerCase())) {
+                console.info("Goodbye!");
+                process.exit(0);
+            }
+        }
+
+        async onStartup() {
+            return await new Promise<void>((resolve, reject) => {
+                process.stdout.write("% ", err => {
+                    if (err) reject(err);
+                    else {
+                        resolve();
+                    }
+                });
+            });
+        }
+        afterEach = this.onStartup
+    };
+
+    await commands.useStream(process.stdin)
+        .then(() => process.exit(0));
 }
 
 configureRoutes(express())
-    .then(app => {
-        server = app.listen(portNum, () => {
-            console.log(`Listening on port ${portNum}`);
-        });
-    })
+    .then(app => (
+        new Promise<http.Server>(function(resolve, reject)  {
+            server = app.listen(portNum, () => {
+                console.log(`Listening on port ${portNum}`);
+                resolve(server);
+            });
+        })
+    ))
     .then(main)
     .catch(err => {
         console.error(err);
