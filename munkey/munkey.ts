@@ -35,10 +35,6 @@ const portNum: number = process.argv.length > 2
     ? parseInt(process.argv[2])
     : 8000;
 
-const connectPort: number|null = process.argv.length > 3
-    ? parseInt(process.argv[3])
-    : null;
-
 let server: http.Server = null;
 
 async function configureRoutes(app: express.Application): Promise<express.Application> {
@@ -122,8 +118,8 @@ async function main(): Promise<void> {
             }
         }
 
-        async onUnknownCommand(command: string, args: string[]): Promise<void> {
-            if (["q", "quit", "exit"].includes(command.toLowerCase())) {
+        async onUnknownCommand([command = "unknown", ...args]: string[] = []): Promise<void> {
+            if (["q", "quit", "exit"].includes(command?.toLowerCase())) {
                 console.info("Goodbye!");
                 process.exit(0);
             }
@@ -148,7 +144,7 @@ async function main(): Promise<void> {
 
 configureRoutes(express())
     .then(app => (
-        new Promise<http.Server>(function(resolve, reject)  {
+        new Promise<http.Server>(function(resolve)  {
             server = app.listen(portNum, () => {
                 console.log(`Listening on port ${portNum}`);
                 resolve(server);

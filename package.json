@@ -4,8 +4,8 @@
   "description": "Peer-to-peer cryptographic password manager",
   "main": "bin/munkey.js",
   "scripts": {
-    "build": "tsc",
-    "start": "node bin/munkey.js",
+    "build": "tsc --build munkey",
+    "start": "npm run build && node munkey/bin/munkey.js",
     "clean": "rm -rf bin node_modules",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

@@ -8,11 +8,14 @@
 import { Readable } from "stream";
 
 interface CommandServer {
-    onUnknownCommand?(command: string, args: string[]): Promise<void>;
+    onUnknownCommand?(args: string[]): Promise<void>;
     onStartup?(): Promise<void>;
     beforeEach?(): void;
     afterEach?(): void;
 }
+
+type CommandEntry = ((args: string[]) => Promise<void>) | CommandSet;
+type CommandSet = { [command: string]: CommandEntry };
 
 /**
  * Container for managing and dispatching external commands to the application.
@@ -23,6 +26,34 @@ interface CommandServer {
  * Each abstract method is a potential command that may be received. Implement the method to define its behavior.
  */
 abstract class CommandServer {
+
+    private commands: CommandSet = {
+        "vault": {
+            "new": ([vaultName = null]: string[] = []): Promise<void> => {
+                if (vaultName === null) {
+                    console.error("Missing name for vault creation");
+                    return Promise.resolve();
+                }
+                return this.onCreateVault(vaultName);
+            },
+
+            "add": ([entryKey = null, entryData = null]: string[] = []): Promise<void> => {
+                if (entryKey === null || entryData === null) {
+                    console.error(`Missing ${entryKey ? "data" : "key name"} for entry creation`);
+                    return Promise.resolve();
+                }
+                return this.onAddVaultEntry(entryKey, entryData);
+            },
+
+            "get": ([entryKey = null]: string[]): Promise<void> => {
+                if (entryKey === null) {
+                    console.error("Missing key name for entry retrieval");
+                    return Promise.resolve();
+                }
+                return this.onGetVaultEntry(entryKey);
+            },
+        }
+    }
 
     /**
      * Perform command parsing on the provided readable stream.
@@ -38,15 +69,10 @@ abstract class CommandServer {
 
         return new Promise((resolve, reject) => {
             stream.on("data", async (chunk: Buffer) => {
-                const [command, ...args]: string[] = chunk.toString().split(/\s+/g);
-
-                switch (command.toLowerCase()) {
-                case "vault":
-                    await this.parseVaultCommand(args.filter(arg => arg.length > 0));
-                default:
-                    await this.onUnknownCommand(command, args);
-                }
-
+                const args: string[] = chunk.toString()
+                    .split(/\s+/g)
+                    .filter(arg => arg.length > 0);
+                await this.parseCommand(args);
                 this.afterEach();
             });
 
@@ -64,44 +90,29 @@ abstract class CommandServer {
     /**
      * Process vault operation commands of the format `vault <...>`
      * 
-     * @param rawArgs List of args passed to the `vault` command
+     * @param args List of args passed to the `vault` command
      * I.e., `vault new vaultname` -> ["new", "vaultname"]
      * @returns Promise corresponding to the given vault command.
      */
-    private parseVaultCommand(rawArgs: string[]): Promise<void> {
-        if (rawArgs.length <= 0) {
-            console.error("Not enough arguments");
-            return Promise.resolve();
-        }
+    private parseCommand(args: string[]): Promise<void> {
+        let command: string,
+            commandArgs: string[] = args,
+            forward: CommandEntry = this.commands;
+        do {
+            [command, ...commandArgs] = commandArgs;
+            ({ [command]: forward } = forward);
+        } while (forward && !(forward instanceof Function));
 
-        const [command, ...args] = rawArgs;
-        switch (command) {
-        case "new":
-            if (args.length < 1) {
-                console.error("Not enough arguments");
-                return Promise.resolve();
-            }
-            return this.onCreateVault(args[0]);
-        case "add":
-            if (args.length < 2) {
-                console.error("No data provided");
-                return Promise.resolve();
-            }
-            return this.onAddVaultEntry(args[0], args[1]);
-        case "get":
-            if (args.length < 1) {
-                console.error("Not enough arguments");
-                return Promise.resolve();
-            }
-            return this.onGetVaultEntry(args[0]);
-        }
+        return forward && forward instanceof Function
+            ? forward(commandArgs)
+            : this.onUnknownCommand(args);
     }
 
     abstract onCreateVault(vaultName: string): Promise<void>;
     abstract onAddVaultEntry(entryKey: string, data: string): Promise<void>;
     abstract onGetVaultEntry(entryKey: string): Promise<void>;
 
-    async onUnknownCommand?(command: string, args: string[]): Promise<void> {}
+    async onUnknownCommand?(args: string[]): Promise<void> {}
     async onStartup?(): Promise<void> {}
     beforeEach?() {}
     afterEach?() {}
