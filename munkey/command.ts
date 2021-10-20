@@ -37,7 +37,7 @@ abstract class CommandServer {
                 return this.onCreateVault(vaultName);
             },
 
-            "add": ([entryKey = null, entryData = null]: string[] = []): Promise<void> => {
+            "set": ([entryKey = null, entryData = null]: string[] = []): Promise<void> => {
                 if (entryKey === null || entryData === null) {
                     console.error(`Missing ${entryKey ? "data" : "key name"} for entry creation`);
                     return Promise.resolve();
@@ -51,6 +51,19 @@ abstract class CommandServer {
                     return Promise.resolve();
                 }
                 return this.onGetVaultEntry(entryKey);
+            },
+        },
+        "link": {
+            "up": this.onLinkUp,
+            "down": this.onLinkDown,
+        },
+        "peer": {
+            "sync": ([peerId = null]: string[] = []): Promise<void> => {
+                if (peerId === null) {
+                    console.error("Missing peer id for peer sync");
+                    return Promise.resolve();
+                }
+                return this.onPeerSync(peerId);
             },
         }
     }
@@ -111,6 +124,11 @@ abstract class CommandServer {
     abstract onCreateVault(vaultName: string): Promise<void>;
     abstract onAddVaultEntry(entryKey: string, data: string): Promise<void>;
     abstract onGetVaultEntry(entryKey: string): Promise<void>;
+
+    abstract onLinkUp(): Promise<void>;
+    abstract onLinkDown(): Promise<void>;
+
+    abstract onPeerSync(peerId: string): Promise<void>;
 
     async onUnknownCommand?(args: string[]): Promise<void> {}
     async onStartup?(): Promise<void> {}

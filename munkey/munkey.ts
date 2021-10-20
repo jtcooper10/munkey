@@ -118,10 +118,25 @@ async function main(): Promise<void> {
             }
         }
 
+        async onLinkUp(): Promise<void> {
+            console.info("Unimplemented command: link up");
+        }
+
+        async onLinkDown(): Promise<void> {
+            console.info("Unimplemented command: link down");
+        }
+
+        async onPeerSync(peerId: string): Promise<void> {
+            console.info(`Unimplemented command: peer sync ${peerId}`);
+        }
+
         async onUnknownCommand([command = "unknown", ...args]: string[] = []): Promise<void> {
             if (["q", "quit", "exit"].includes(command?.toLowerCase())) {
                 console.info("Goodbye!");
                 process.exit(0);
+            }
+            else {
+                console.error("Unknown command");
             }
         }
 
