@@ -11,6 +11,11 @@
         ],
         "lib": [
             "es2015"
-        ]
-    }
+        ],
+        "outDir": "bin"
+    },
+    "include": [
+        "munkey.ts",
+        "command.ts"
+    ]
 }
