@@ -16,6 +16,7 @@
     },
     "include": [
         "munkey.ts",
-        "command.ts"
+        "command.ts",
+        "services.ts"
     ]
 }

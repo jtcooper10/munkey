@@ -21,34 +21,12 @@
  * @created : 10/13/2021
  */
 
-import http from "http";
-import PouchDB from "pouchdb";
 import express from "express";
-import usePouchDB from "express-pouchdb";
 import { CommandServer } from "./command";
+import { ServiceContainer, configureRoutes, VaultContainer } from "./services";
 
-const MemoryDB = PouchDB.defaults({
-    db: require("memdown")
-});
-
-const portNum: number = process.argv.length > 2
-    ? parseInt(process.argv[2])
-    : 8000;
-
-let server: http.Server = null;
-
-async function configureRoutes(app: express.Application): Promise<express.Application> {
-    app.get("/", function(request, response) {
-        response.send("Hello, world!\n");
-    });
-
-    app.use("/db", usePouchDB(MemoryDB));
-
-    return app;
-}
-
-async function main(): Promise<void> {
-    const vaultDb = new MemoryDB("vault");
+async function main(app: express.Application, services: ServiceContainer): Promise<void> {
+    const vaultDb = services.vault.createVault("vault");
 
     const commands: CommandServer = new class extends CommandServer {
         private currentVault?: string = null;
@@ -158,20 +136,9 @@ async function main(): Promise<void> {
 }
 
 configureRoutes(express())
-    .then(app => (
-        new Promise<http.Server>(function(resolve)  {
-            server = app.listen(portNum, () => {
-                console.log(`Listening on port ${portNum}`);
-                resolve(server);
-            });
-        })
-    ))
-    .then(main)
+    .then(app => main(app, {
+        vault: new VaultContainer(),
+    }))
     .catch(err => {
         console.error(err);
-        if (server !== null) {
-            server = server.close(serverErr => {
-                console.error(serverErr);
-            });
-        }
     });
