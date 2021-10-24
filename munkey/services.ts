@@ -61,8 +61,8 @@ class VaultContainer {
     }
 
     /**
-     * @name getVault
-     * @description Find or generate the vault with the given name.
+     * @name createVault
+     * @description Find or generate the vault with the given ID.
      * If a vault with that ID doesn't exist yet, it is created.
      * If a vault with that ID already exists, it is returned unmodified.
      * 
@@ -74,6 +74,18 @@ class VaultContainer {
         return vault ?? this.vaultMap
             .set(vaultId, new MemoryDB(vaultId))
             .get(vaultId);
+    }
+
+    /**
+     * @name getVault
+     * @description Find the vault with the given ID.
+     * If none exists with that ID, returns undefined.
+     * 
+     * @returns PouchDB instance if one with the provided ID exists.
+     * Otherwise, returns undefined.
+     */
+    public getVault(vaultId: string) {
+        return this.vaultMap.get(vaultId);
     }
 }
 

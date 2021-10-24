@@ -26,73 +26,63 @@ import { CommandServer } from "./command";
 import { ServiceContainer, configureRoutes, VaultContainer } from "./services";
 
 async function main(app: express.Application, services: ServiceContainer): Promise<void> {
-    const vaultDb = services.vault.createVault("vault");
-
     const commands: CommandServer = new class extends CommandServer {
         private currentVault?: string = null;
+        private vault?: any = null;
 
         async onCreateVault(vaultName: string): Promise<void> {
             console.info(`Creating new vault (${vaultName})`);
 
-            await vaultDb.put({
-                _id: vaultName,
+            if (services.vault.getVault(vaultName)) {
+                return console.error(`Cannot create vault ${vaultName} (already exists)`);
+            }
+
+            this.vault = services.vault.createVault(vaultName);
+            await this.vault.put({
+                _id: "dict",
                 entries: {},
-            })
-            .then(() => {
-                this.currentVault = vaultName;
-            })
-            .catch(err => {
-                if (err.status === 409) {
-                    console.error(`Cannot create vault ${vaultName} (already exists)`);
-                }
-                else {
-                    console.error(err);
-                }
             });
+            this.currentVault = vaultName;
         }
 
         async onAddVaultEntry(entryKey: string, data: string): Promise<void> {
-            if (this.currentVault === null) {
+            if (this.vault === null) {
                 console.error("No vault selected; please select or create a vault");
                 return Promise.resolve();
             }
 
             console.info(`Adding new vault entry to ${this.currentVault}`);
-            const vault = await vaultDb.get(this.currentVault)
+            const { _rev, entries } = await this.vault
+                .get("dict")
                 .catch(err => console.error(err));
 
-            if (vault) {
-                const { entries } = vault;
-                if (entryKey in entries) {
-                    console.error("Entry already exists");
-                    return Promise.resolve();
-                }
-
-                await vaultDb.put({
-                    _id: this.currentVault,
-                    _rev: vault._rev,
-                    entries: { ...entries, [entryKey]: data },
-                }).catch(err => console.error(err));
+            if (entryKey in entries) {
+                console.error("Entry already exists");
+                return Promise.resolve();
             }
+
+            await this.vault.put({
+                _id: "dict",
+                _rev,
+                entries: { ...entries, [entryKey]: data },
+            }).catch(err => console.error(err));
         }
 
         async onGetVaultEntry(entryKey: string): Promise<void> {
-            if (this.currentVault === null) {
+            if (this.vault === null) {
                 console.error("No vault selected; please select or create a vault");
                 return Promise.resolve();
             }
 
-            const vault = await vaultDb.get(this.currentVault)
+            const { entries } = await this.vault.get("dict")
                 .catch(err => console.error(err));
-            
-            if (vault) {
-                const data = vault.entries[entryKey];
-                if (!data) {
-                    console.error("Vault entry not found");
-                }
-                else {
-                    console.info(`[${entryKey}] = ${data}`);
-                }
+
+            const data = entries[entryKey];
+            if (!data) {
+                console.error("Vault entry not found");
+            }
+            else {
+                console.info(`[${entryKey}] = ${data}`);
             }
         }
 
