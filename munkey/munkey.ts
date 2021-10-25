@@ -21,100 +21,68 @@
  * @created : 10/13/2021
  */
 
-import http from "http";
-import PouchDB from "pouchdb";
 import express from "express";
-import usePouchDB from "express-pouchdb";
 import { CommandServer } from "./command";
+import { ServiceContainer, configureRoutes, VaultContainer } from "./services";
 
-const MemoryDB = PouchDB.defaults({
-    db: require("memdown")
-});
-
-const portNum: number = process.argv.length > 2
-    ? parseInt(process.argv[2])
-    : 8000;
-
-let server: http.Server = null;
-
-async function configureRoutes(app: express.Application): Promise<express.Application> {
-    app.get("/", function(request, response) {
-        response.send("Hello, world!\n");
-    });
-
-    app.use("/db", usePouchDB(MemoryDB));
-
-    return app;
-}
-
-async function main(): Promise<void> {
-    const vaultDb = new MemoryDB("vault");
-
+async function main(app: express.Application, services: ServiceContainer): Promise<void> {
     const commands: CommandServer = new class extends CommandServer {
         private currentVault?: string = null;
+        private vault?: any = null;
 
         async onCreateVault(vaultName: string): Promise<void> {
             console.info(`Creating new vault (${vaultName})`);
 
-            await vaultDb.put({
-                _id: vaultName,
+            if (services.vault.getVault(vaultName)) {
+                return console.error(`Cannot create vault ${vaultName} (already exists)`);
+            }
+
+            this.vault = services.vault.createVault(vaultName);
+            await this.vault.put({
+                _id: "dict",
                 entries: {},
-            })
-            .then(() => {
-                this.currentVault = vaultName;
-            })
-            .catch(err => {
-                if (err.status === 409) {
-                    console.error(`Cannot create vault ${vaultName} (already exists)`);
-                }
-                else {
-                    console.error(err);
-                }
             });
+            this.currentVault = vaultName;
         }
 
         async onAddVaultEntry(entryKey: string, data: string): Promise<void> {
-            if (this.currentVault === null) {
+            if (this.vault === null) {
                 console.error("No vault selected; please select or create a vault");
                 return Promise.resolve();
             }
 
             console.info(`Adding new vault entry to ${this.currentVault}`);
-            const vault = await vaultDb.get(this.currentVault)
+            const { _rev, entries } = await this.vault
+                .get("dict")
                 .catch(err => console.error(err));
 
-            if (vault) {
-                const { entries } = vault;
-                if (entryKey in entries) {
-                    console.error("Entry already exists");
-                    return Promise.resolve();
-                }
-
-                await vaultDb.put({
-                    _id: this.currentVault,
-                    _rev: vault._rev,
-                    entries: { ...entries, [entryKey]: data },
-                }).catch(err => console.error(err));
+            if (entryKey in entries) {
+                console.error("Entry already exists");
+                return Promise.resolve();
             }
+
+            await this.vault.put({
+                _id: "dict",
+                _rev,
+                entries: { ...entries, [entryKey]: data },
+            }).catch(err => console.error(err));
         }
 
         async onGetVaultEntry(entryKey: string): Promise<void> {
-            if (this.currentVault === null) {
+            if (this.vault === null) {
                 console.error("No vault selected; please select or create a vault");
                 return Promise.resolve();
             }
 
-            const vault = await vaultDb.get(this.currentVault)
+            const { entries } = await this.vault.get("dict")
                 .catch(err => console.error(err));
-            
-            if (vault) {
-                const data = vault.entries[entryKey];
-                if (!data) {
-                    console.error("Vault entry not found");
-                }
-                else {
-                    console.info(`[${entryKey}] = ${data}`);
-                }
+
+            const data = entries[entryKey];
+            if (!data) {
+                console.error("Vault entry not found");
+            }
+            else {
+                console.info(`[${entryKey}] = ${data}`);
             }
         }
 
@@ -158,20 +126,9 @@ async function main(): Promise<void> {
 }
 
 configureRoutes(express())
-    .then(app => (
-        new Promise<http.Server>(function(resolve)  {
-            server = app.listen(portNum, () => {
-                console.log(`Listening on port ${portNum}`);
-                resolve(server);
-            });
-        })
-    ))
-    .then(main)
+    .then(app => main(app, {
+        vault: new VaultContainer(),
+    }))
     .catch(err => {
         console.error(err);
-        if (server !== null) {
-            server = server.close(serverErr => {
-                console.error(serverErr);
-            });
-        }
     });
