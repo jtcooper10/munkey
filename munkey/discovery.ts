@@ -17,7 +17,21 @@ interface PeerIdentityDecl {
     vaults: PeerVaultDecl[];
 }
 
+function isPeerIdentityDecl(decl: Object): decl is PeerIdentityDecl {
+    return decl &&
+        (decl.hasOwnProperty("uniqueId")) &&
+        (decl.hasOwnProperty("vaults")) &&
+        (Array.isArray((decl as PeerIdentityDecl).vaults)) &&
+        ((decl as PeerIdentityDecl).vaults.every(vault => (
+                vault.hasOwnProperty("vaultId") && vault.hasOwnProperty("nickname")
+            )
+        ));
+}
+
 export {
     PeerVaultDecl,
     PeerIdentityDecl,
+
+    /* Validation Functions */
+    isPeerIdentityDecl,
 };

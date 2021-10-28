@@ -5,7 +5,11 @@
  * @created : 10/23/2021
  */
 
-import { PeerIdentityDecl, PeerVaultDecl } from "./discovery";
+import {
+    PeerIdentityDecl,
+    PeerVaultDecl,
+    isPeerIdentityDecl,
+} from "./discovery";
 
 import express from "express";
 import PouchDB from "pouchdb";
@@ -50,13 +54,18 @@ function configureRoutes(app: express.Application,
         request: express.Request<any, any, PeerIdentityDecl>,
         response: express.Response<PeerIdentityDecl>)
     {
+        if (!isPeerIdentityDecl(request.body)) {
+            response.status(400).end("Invalid request structure");
+            return;
+        }
+
         services.identity.knownPeers.set(request.body.uniqueId, request.body);
         const vaultList: PeerVaultDecl[] = [];
         for await (let activeVault of services.vault.getActiveVaults()) {
             vaultList.push(activeVault);
         }
 
-        response.send({
+        response.json({
             uniqueId: services.identity.getId(),
             vaults: vaultList,
         });
