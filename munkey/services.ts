@@ -5,9 +5,12 @@
  * @created : 10/23/2021
  */
 
+import { PeerIdentityDecl, PeerVaultDecl } from "./discovery";
+
 import express from "express";
 import PouchDB from "pouchdb";
 import usePouchDB from "express-pouchdb";
+import { randomUUID } from "crypto";
 
 const MemoryDB = PouchDB.defaults({
     db: require("memdown")
@@ -15,6 +18,13 @@ const MemoryDB = PouchDB.defaults({
 
 interface ServerOptions {
     portNum: number;
+}
+
+/**
+ * 
+ */
+function generateNewIdentity(): Promise<string> {
+    return Promise.resolve(randomUUID());
 }
 
 /**
@@ -31,11 +41,25 @@ interface ServerOptions {
  * @returns Promise which resolves to a fully-configured Express.js application object.
  * The resolved application object is the same object as is passed in, but configured.
  */
-function configureRoutes(app: express.Application, { portNum = 8000 }: ServerOptions = { portNum: 8000 })
-    : Promise<express.Application>
+function configureRoutes(app: express.Application,
+    services: ServiceContainer,
+    { portNum = 8000 }: ServerOptions = { portNum: 8000 }): Promise<ServiceContainer>
 {
-    app.get("/", function(request, response) {
-        response.send("Hello, world!\n");
+    app.use("/", express.json());
+    app.get("/", async function(
+        request: express.Request<any, any, PeerIdentityDecl>,
+        response: express.Response<PeerIdentityDecl>)
+    {
+        services.identity.knownPeers.set(request.body.uniqueId, request.body);
+        const vaultList: PeerVaultDecl[] = [];
+        for await (let activeVault of services.vault.getActiveVaults()) {
+            vaultList.push(activeVault);
+        }
+
+        response.send({
+            uniqueId: services.identity.getId(),
+            vaults: vaultList,
+        });
     });
 
     app.use("/db", usePouchDB(MemoryDB));
@@ -43,7 +67,7 @@ function configureRoutes(app: express.Application, { portNum = 8000 }: ServerOpt
     return new Promise(function(resolve, reject) {
         app.listen(portNum, function() {
             console.info(`Listening on port ${portNum}`);
-            resolve(app);
+            resolve(services);
         });
     });
 }
@@ -87,17 +111,44 @@ class VaultContainer {
     public getVault(vaultId: string) {
         return this.vaultMap.get(vaultId);
     }
+
+    /**
+     * 
+     */
+    public async* getActiveVaults(): AsyncIterable<PeerVaultDecl> {
+        for (let activeVault in this.vaultMap) {
+            yield {
+                nickname: activeVault,
+                vaultId: activeVault,
+            };
+        }
+    }
+}
+
+class IdentityService {
+    public knownPeers: Map<string, PeerIdentityDecl>;
+
+    constructor(private uniqueId: string) {
+        this.knownPeers = new Map<string, PeerIdentityDecl>();
+    }
+
+    public getId(): string {
+        return this.uniqueId;
+    }
 }
 
 interface ServiceContainer {
     vault: VaultContainer;
+    identity: IdentityService;
 }
 
 export {
     /* Service Classes */
     ServiceContainer,
     VaultContainer,
+    IdentityService,
 
     /* Configuration Functions */
     configureRoutes,
+    generateNewIdentity,
 };

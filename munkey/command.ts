@@ -96,6 +96,7 @@ abstract class CommandServer {
                     return this.onPeerLink(hostname, portNum);
                 }
             },
+            "list": this.onPeerList,
         }
     }
 
@@ -164,6 +165,7 @@ abstract class CommandServer {
 
     abstract onPeerSync(peerId: string): Promise<void>;
     abstract onPeerLink(hostname: string, portNum: number): Promise<void>;
+    abstract onPeerList(): Promise<void>;
 
     async onUnknownCommand?(args: string[]): Promise<void> {}
     async onStartup?(): Promise<void> {}

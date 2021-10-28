@@ -23,9 +23,9 @@
 
 import express from "express";
 import { CommandServer } from "./command";
-import { ServiceContainer, configureRoutes, VaultContainer } from "./services";
+import { ServiceContainer, VaultContainer, generateNewIdentity, configureRoutes, IdentityService } from "./services";
 
-async function main(app: express.Application, services: ServiceContainer): Promise<void> {
+async function main(services: ServiceContainer): Promise<void> {
     const commands: CommandServer = new class extends CommandServer {
         private currentVault?: string = null;
         private vault?: any = null;
@@ -102,6 +102,15 @@ async function main(app: express.Application, services: ServiceContainer): Promi
             console.log(`Connecting to ${hostname}, port ${portNum}`);
         }
 
+        async onPeerList(): Promise<void> {
+            for await (let [peerId, peer] of services.identity.knownPeers) {
+                console.info(` ? ${peerId} Vaults:`);
+                for (let vault of peer.vaults) {
+                    console.info(`   - ${vault.nickname}[${vault.vaultId}]`);
+                }
+            }
+        }
+
         async onUnknownCommand([command = "unknown", ...args]: string[] = []): Promise<void> {
             if (["q", "quit", "exit"].includes(command?.toLowerCase())) {
                 console.info("Goodbye!");
@@ -129,10 +138,12 @@ async function main(app: express.Application, services: ServiceContainer): Promi
         .then(() => process.exit(0));
 }
 
-configureRoutes(express())
-    .then(app => main(app, {
+generateNewIdentity()
+    .then(id => configureRoutes(express(), {
         vault: new VaultContainer(),
+        identity: new IdentityService(id),
     }))
+    .then(services => main(services))
     .catch(err => {
         console.error(err);
     });
