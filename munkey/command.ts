@@ -65,6 +65,37 @@ abstract class CommandServer {
                 }
                 return this.onPeerSync(peerId);
             },
+            "link": ([connection = null]: string[] = []): Promise<void> => {
+                if (connection === null) {
+                    console.error("Missing connection string for peer link");
+                    return Promise.resolve();
+                }
+
+                // List of errors is tracked rather than one error.
+                // This is because there is often >1 issue involved with parsing.
+                let errorsFound: string[] = [],
+                    hostname: string,
+                    portNum: string|number;
+                [hostname, portNum] = connection.split(":", 2);
+                portNum = parseInt(portNum) as number;
+
+                if (hostname.length < 1) {
+                    errorsFound.push(`Could not parse hostname from connection string [${connection}]`);
+                }
+                if (isNaN(portNum)) {
+                    errorsFound.push(`Could not parse port number from connection string [${connection}]`);
+                }
+
+                if (errorsFound.length > 0) {
+                    for (let errString of errorsFound) {
+                        console.error(errString);
+                    }
+                    return Promise.resolve();
+                }
+                else {
+                    return this.onPeerLink(hostname, portNum);
+                }
+            },
         }
     }
 
@@ -113,6 +144,9 @@ abstract class CommandServer {
             forward: CommandEntry = this.commands;
         do {
             [command, ...commandArgs] = commandArgs;
+            if (!(command in forward)) {
+
+            }
             ({ [command]: forward } = forward);
         } while (forward && !(forward instanceof Function));
 
@@ -129,6 +163,7 @@ abstract class CommandServer {
     abstract onLinkDown(): Promise<void>;
 
     abstract onPeerSync(peerId: string): Promise<void>;
+    abstract onPeerLink(hostname: string, portNum: number): Promise<void>;
 
     async onUnknownCommand?(args: string[]): Promise<void> {}
     async onStartup?(): Promise<void> {}

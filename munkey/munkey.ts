@@ -98,6 +98,10 @@ async function main(app: express.Application, services: ServiceContainer): Promi
             console.info(`Unimplemented command: peer sync ${peerId}`);
         }
 
+        async onPeerLink(hostname: string, portNum: number): Promise<void> {
+            console.log(`Connecting to ${hostname}, port ${portNum}`);
+        }
+
         async onUnknownCommand([command = "unknown", ...args]: string[] = []): Promise<void> {
             if (["q", "quit", "exit"].includes(command?.toLowerCase())) {
                 console.info("Goodbye!");
