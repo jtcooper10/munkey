@@ -49,8 +49,8 @@ function configureRoutes(app: express.Application,
     services: ServiceContainer,
     { portNum = 8000 }: ServerOptions = { portNum: 8000 }): Promise<ServiceContainer>
 {
-    app.use("/", express.json());
-    app.get("/", async function(
+    app.use("/link", express.json());
+    app.post("/link", async function(
         request: express.Request<any, any, PeerIdentityDecl>,
         response: express.Response<PeerIdentityDecl>)
     {
@@ -69,6 +69,7 @@ function configureRoutes(app: express.Application,
             uniqueId: services.identity.getId(),
             vaults: vaultList,
         });
+        response.end();
     });
 
     app.use("/db", usePouchDB(MemoryDB));
@@ -125,12 +126,20 @@ class VaultContainer {
      * 
      */
     public async* getActiveVaults(): AsyncIterable<PeerVaultDecl> {
-        for (let activeVault in this.vaultMap) {
+        for (let [vaultName] of this.vaultMap) {
             yield {
-                nickname: activeVault,
-                vaultId: activeVault,
+                nickname: vaultName,
+                vaultId: vaultName,
             };
         }
+    }
+
+    public async getActiveVaultList(): Promise<PeerVaultDecl[]> {
+        const vaultList: PeerVaultDecl[] = [];
+        for await (let vault of this.getActiveVaults()) {
+            vaultList.push(vault);
+        }
+        return vaultList;
     }
 }
 

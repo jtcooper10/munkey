@@ -52,10 +52,12 @@ abstract class CommandServer {
                 }
                 return this.onGetVaultEntry(entryKey);
             },
+
+            "list": this.onListVaults.bind(this),
         },
         "link": {
-            "up": this.onLinkUp,
-            "down": this.onLinkDown,
+            "up": this.onLinkUp.bind(this),
+            "down": this.onLinkDown.bind(this),
         },
         "peer": {
             "sync": ([peerId = null]: string[] = []): Promise<void> => {
@@ -96,7 +98,7 @@ abstract class CommandServer {
                     return this.onPeerLink(hostname, portNum);
                 }
             },
-            "list": this.onPeerList,
+            "list": this.onPeerList.bind(this),
         }
     }
 
@@ -159,6 +161,7 @@ abstract class CommandServer {
     abstract onCreateVault(vaultName: string): Promise<void>;
     abstract onAddVaultEntry(entryKey: string, data: string): Promise<void>;
     abstract onGetVaultEntry(entryKey: string): Promise<void>;
+    abstract onListVaults(): Promise<void>;
 
     abstract onLinkUp(): Promise<void>;
     abstract onLinkDown(): Promise<void>;

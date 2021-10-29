@@ -45,6 +45,14 @@ async function main(services: ServiceContainer): Promise<void> {
             this.currentVault = vaultName;
         }
 
+        async onListVaults(): Promise<void> {
+            console.info(":: :: Active  Vaults :: ::");
+
+            for (let vault of await services.vault.getActiveVaultList()) {
+                console.info(` ${vault.vaultId === this.currentVault ? " " : "*"} [${vault.vaultId}] ${vault.nickname}`);
+            }
+        }
+
         async onAddVaultEntry(entryKey: string, data: string): Promise<void> {
             if (this.vault === null) {
                 console.error("No vault selected; please select or create a vault");
@@ -142,7 +150,7 @@ generateNewIdentity()
     .then(id => configureRoutes(express(), {
         vault: new VaultContainer(),
         identity: new IdentityService(id),
-    }))
+    }, { portNum: process.argv.length > 2 ? parseInt(process.argv[2]) : 8000 }))
     .then(services => main(services))
     .catch(err => {
         console.error(err);

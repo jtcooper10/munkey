@@ -3,7 +3,7 @@
         "module": "commonjs",
         "esModuleInterop": true,
         "moduleResolution": "node",
-        "target": "ES6",
+        "target": "ESNext",
         "composite": true,
         "sourceMap": true,
         "types": [
