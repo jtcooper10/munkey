@@ -22,8 +22,17 @@
  */
 
 import express from "express";
+import http from "http";
+
 import { CommandServer } from "./command";
-import { ServiceContainer, VaultContainer, generateNewIdentity, configureRoutes, IdentityService } from "./services";
+import { isPeerIdentityDecl } from "./discovery";
+import {
+    ServiceContainer,
+    VaultContainer,
+    generateNewIdentity,
+    configureRoutes,
+    IdentityService
+} from "./services";
 
 async function main(services: ServiceContainer): Promise<void> {
     const commands: CommandServer = new class extends CommandServer {
@@ -106,8 +115,46 @@ async function main(services: ServiceContainer): Promise<void> {
             console.info(`Unimplemented command: peer sync ${peerId}`);
         }
 
-        async onPeerLink(hostname: string, portNum: number): Promise<void> {
-            console.log(`Connecting to ${hostname}, port ${portNum}`);
+        async onPeerLink(hostname: string, port: number): Promise<void> {
+            console.info(`Connecting to ${hostname}, port ${port}`);
+
+            const linkResponse: string | null = await services.vault.getActiveVaultList()
+                .then(async vaults => {
+                    const reqdata = JSON.stringify({
+                        uniqueId: services.identity.getId(),
+                        vaults,
+                    });
+
+                    return new Promise<string>(function(resolve, reject) {
+                        const req = http.request({
+                                hostname,
+                                port: port.toString(),
+                                path: "/link",
+                                method: "POST",
+                                headers: {
+                                    "Content-Type": "application/json",
+                                    "Content-Length": reqdata.length,
+                                }
+                            },
+                            function(res) {
+                                const data = [];
+                                res.on("data", chunk => data.push(chunk));
+                                res.on("error", err => reject(err));
+                                res.on("end", () => resolve(data.join("")));
+                            });
+                        req.write(reqdata);
+                        req.end();
+                    }).catch(err => (console.error(err), null));
+                });
+
+            const peerIdentity = linkResponse && JSON.parse(linkResponse);
+            if (isPeerIdentityDecl(peerIdentity)) {
+                services.identity.knownPeers.set(peerIdentity.uniqueId, peerIdentity);
+                console.info(`Peer link successful; discovered ${peerIdentity.vaults.length} new vaults`);
+            }
+            else {
+                console.error("Peer resolved to an invalid identity");
+            }
         }
 
         async onPeerList(): Promise<void> {
