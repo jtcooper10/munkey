@@ -25,7 +25,11 @@ interface ServerOptions {
 }
 
 /**
- * 
+ * @name generateNewIdentity
+ * @summary Create a brand-new identity object (as of v0.0.1, just a string) from random.
+ * @function
+ *
+ * @returns Promise which resolves to a new unique identifier string.
  */
 function generateNewIdentity(): Promise<string> {
     return Promise.resolve(randomUUID());
@@ -35,17 +39,18 @@ function generateNewIdentity(): Promise<string> {
  * @name configureRoutes
  * @description Set up default Express.js endpoints based on IoC configurations.
  * Override options will be accepted but may be ignored.
- * 
  * @function
+ *
  * @param app Express.js application to attach basic endpoints to.
- * @param {ServerOptions} options Option overrides for IoC configutation.
- * Not guaranteed to be included, effictively a "recommendation."
- * @param {number} options.portNum Default port number to listen on.
- * 
+ * @param {ServiceContainer} services Service container to attach endpoints to.
+ * Any updates issued by the web server will be applied to this service container.
+ * @param {number} portNum Port number for the web server to listen on.
+ *
  * @returns Promise which resolves to a fully-configured Express.js application object.
  * The resolved application object is the same object as is passed in, but configured.
  */
-function configureRoutes(app: express.Application,
+function configureRoutes(
+    app: express.Application,
     services: ServiceContainer,
     { portNum = 8000 }: ServerOptions = { portNum: 8000 }): Promise<ServiceContainer>
 {
@@ -68,8 +73,7 @@ function configureRoutes(app: express.Application,
         response.json({
             uniqueId: services.identity.getId(),
             vaults: vaultList,
-        });
-        response.end();
+        }).end();
     });
 
     app.use("/db", usePouchDB(MemoryDB));
@@ -79,16 +83,18 @@ function configureRoutes(app: express.Application,
             console.info(`Listening on port ${portNum}`);
             resolve(services);
         });
+
+        app.on("error", err => reject(err));
     });
 }
 
 /**
  * @name VaultContainer
- * @description IoC container for the application state of all PouchDB vaults.
+ * @summary IoC container for the application state of all PouchDB vaults.
  * @class
  */
 class VaultContainer {
-    private vaultMap: Map<string, any>;
+    private readonly vaultMap: Map<string, any>;
 
     constructor() {
         this.vaultMap = new Map<string, any>();
@@ -123,7 +129,14 @@ class VaultContainer {
     }
 
     /**
-     * 
+     * @name getActiveVaults
+     * @summary Iterate over the internal vault list as Peer Vault Declaration records.
+     * @description Return the unique Peer Vault Declaration record for each active vault in the container.
+     * No guarantees are made by the function in terms of race conditions.
+     * If, for example, a new vault entry is added before the vault iteration completes,
+     * it is not guaranteed that the new entry will be made visible to the iterator.
+     *
+     * @returns Async iterable which resolves to a unique Peer Vault Declaration record on each iteration.
      */
     public async* getActiveVaults(): AsyncIterable<PeerVaultDecl> {
         for (let [vaultName] of this.vaultMap) {
@@ -134,6 +147,17 @@ class VaultContainer {
         }
     }
 
+    /**
+     * @name getActiveVaultList
+     * @summary Generate a list of active Peer Vault Declaration records.
+     * @description Generate an array containing the Peer Vault Declaration record for all active vaults.
+     * Similar to the method {@link VaultContainer#getActiveVaults}, but returns a complete list instead of iterating.
+     * No guarantees are made by the function in terms of race conditions.
+     * If, for example, a new vault entry is added before the vault iteration completes,
+     * it is not guaranteed that the new entry will be made visible to the iterator.
+     *
+     * @returns Promise which resolves to a {@link PeerVaultDecl} array.
+     */
     public async getActiveVaultList(): Promise<PeerVaultDecl[]> {
         const vaultList: PeerVaultDecl[] = [];
         for await (let vault of this.getActiveVaults()) {
