@@ -116,14 +116,8 @@ async function main(services: ServiceContainer): Promise<void> {
 
         async onPeerLink(hostname: string, portNum: number): Promise<void> {
             console.info(`Connecting to ${hostname}, port ${portNum}`);
-
-            const request: PeerIdentityDecl = await services.vault.getActiveVaultList()
-                .then(vaults => ({
-                    uniqueId: services.identity.getId(),
-                    vaults
-                }));
             const response: PeerIdentityDecl|null = await services.activity
-                .publishDevice({ hostname, portNum }, request);
+                .publishDevice({ hostname, portNum });
 
             if (response !== null) {
                 console.info(`Successfully linked with peer ${hostname}:${portNum}`);

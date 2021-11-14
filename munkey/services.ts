@@ -57,25 +57,17 @@ function configureRoutes(
     { portNum = 8000 }: ServerOptions = { portNum: 8000 }): Promise<ServiceContainer>
 {
     app.use("/link", express.json());
-    app.post("/link", async function(
-        request: express.Request<any, any, PeerIdentityDecl>,
+
+    app.get("/link", async function(
+        request,
         response: express.Response<PeerIdentityDecl>)
     {
-        if (!isPeerIdentityDecl(request.body)) {
-            response.status(400).end("Invalid request structure");
-            return;
-        }
-
-        services.identity.knownPeers.set(request.body.uniqueId, request.body);
-        const vaultList: PeerVaultDecl[] = [];
-        for await (let activeVault of services.vault.getActiveVaults()) {
-            vaultList.push(activeVault);
-        }
-
-        response.json({
+        const identityResponse: PeerIdentityDecl = {
             uniqueId: services.identity.getId(),
-            vaults: vaultList,
-        }).end();
+            vaults: await services.vault.getActiveVaultList(),
+        };
+
+        response.json(identityResponse).end();
     });
 
     app.use("/db", usePouchDB(MemoryDB));
@@ -182,40 +174,41 @@ class IdentityService {
 }
 
 class ActivityService {
+    private activePeerList: Map<string, PeerIdentityDecl>;
+    private discoveryPool: Map<string, DeviceDiscoveryDecl>;
+
+    constructor() {
+        this.activePeerList = new Map<string, PeerIdentityDecl>();
+        this.discoveryPool = new Map<string, DeviceDiscoveryDecl>();
+    }
+
     private async sendLinkRequest(
         hostname: string,
-        portNum: number,
-        request: string): Promise<PeerIdentityDecl|null>
+        portNum: number): Promise<PeerIdentityDecl|null>
     {
         const peerResponse: string|null = await new Promise<string>(function(resolve, reject) {
-            const req = http.request({
+            http.get({
                     hostname,
                     port: portNum.toString(),
                     path: "/link",
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Content-Length": request.length,
-                    }
                 },
-                function(res) {
+                function(res: http.IncomingMessage) {
                     const data: string[] = [];
                     res.on("data", chunk => data.push(chunk));
                     res.on("error", err => reject(err));
                     res.on("end", () => resolve(data.join("")));
+                })
+                .on("error", (err: NodeJS.ErrnoException) => {
+                    if (err.code === "ECONNREFUSED") {
+                        console.error("Connection refused");
+                        resolve(null);
+                    }
+                    else {
+                        reject(err);
+                    }
                 });
-            req.write(request);
-            req.on("error", (err: NodeJS.ErrnoException) => {
-                if (err.code === "ECONNREFUSED") {
-                    console.error("Connection refused");
-                    resolve(null);
-                }
-                else {
-                    reject(err);
-                }
-            });
-            req.end();
-        }).catch(err => {
+        })
+        .catch(err => {
             console.error(err);
             return null;
         });
@@ -224,19 +217,21 @@ class ActivityService {
         return isPeerIdentityDecl(parsedResponse) ? parsedResponse : null;
     }
 
-    public publishDevice(
-        device: DeviceDiscoveryDecl,
-        reqContent: PeerIdentityDecl): Promise<PeerIdentityDecl|null>
+    public publishDevice(device: DeviceDiscoveryDecl): Promise<PeerIdentityDecl|null>
     {
-        const request = JSON.stringify(reqContent);
-        return this.sendLinkRequest(device.hostname, device.portNum, request)
+        return this.sendLinkRequest(device.hostname, device.portNum)
             .then(decl => {
+                this.activePeerList.set(`${device.hostname}:${device.portNum}`, decl);
                 return decl as PeerIdentityDecl;
             })
             .catch(err => {
                 console.error(err);
                 return null;
             });
+    }
+
+    public getActiveDevice(device: DeviceDiscoveryDecl): PeerIdentityDecl | null {
+        return this.activePeerList.get(`${device.hostname}:${device.portNum}`) ?? null;
     }
 }
 
