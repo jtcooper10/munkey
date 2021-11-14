@@ -128,10 +128,10 @@ async function main(services: ServiceContainer): Promise<void> {
         }
 
         async onPeerList(): Promise<void> {
-            for await (let [peerId, peer] of services.identity.knownPeers) {
-                console.info(` ? ${peerId} Vaults:`);
-                for (let vault of peer.vaults) {
-                    console.info(`   - ${vault.nickname}[${vault.vaultId}]`);
+            for (let [hostname, portNum, identity] of services.activity.getActiveDevices()) {
+                console.info(` Peer[${identity.uniqueId}]@${hostname}:${portNum}`);
+                for (let vault of identity.vaults) {
+                    console.info(`\t* "${vault.nickname}": Vault[${vault.vaultId}]`);
                 }
             }
         }

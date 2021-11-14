@@ -6,16 +6,16 @@
  */
 
 import {
-    PeerIdentityDecl,
-    PeerVaultDecl,
     DeviceDiscoveryDecl,
     isPeerIdentityDecl,
+    PeerIdentityDecl,
+    PeerVaultDecl,
 } from "./discovery";
 
 import express from "express";
 import PouchDB from "pouchdb";
 import usePouchDB from "express-pouchdb";
-import { randomUUID } from "crypto";
+import {randomUUID} from "crypto";
 import http from "http";
 
 const MemoryDB = PouchDB.defaults({
@@ -174,8 +174,8 @@ class IdentityService {
 }
 
 class ActivityService {
-    private activePeerList: Map<string, PeerIdentityDecl>;
-    private discoveryPool: Map<string, DeviceDiscoveryDecl>;
+    private readonly activePeerList: Map<string, PeerIdentityDecl>;
+    private readonly discoveryPool: Map<string, DeviceDiscoveryDecl>;
 
     constructor() {
         this.activePeerList = new Map<string, PeerIdentityDecl>();
@@ -232,6 +232,13 @@ class ActivityService {
 
     public getActiveDevice(device: DeviceDiscoveryDecl): PeerIdentityDecl | null {
         return this.activePeerList.get(`${device.hostname}:${device.portNum}`) ?? null;
+    }
+
+    public *getActiveDevices(): Generator<[string, number, PeerIdentityDecl]> {
+        for (let [location, identity] of this.activePeerList) {
+            const [hostname, portNum]: string[] = location.split(":", 2);
+            yield [hostname, parseInt(portNum), identity];
+        }
     }
 }
 
