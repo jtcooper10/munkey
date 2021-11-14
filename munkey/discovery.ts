@@ -17,6 +17,11 @@ interface PeerIdentityDecl {
     vaults: PeerVaultDecl[];
 }
 
+interface DeviceDiscoveryDecl {
+    hostname: string;
+    portNum: number;
+}
+
 function isPeerIdentityDecl(decl: Object): decl is PeerIdentityDecl {
     return decl &&
         ("uniqueId" in decl) &&
@@ -31,6 +36,7 @@ function isPeerIdentityDecl(decl: Object): decl is PeerIdentityDecl {
 export {
     PeerVaultDecl,
     PeerIdentityDecl,
+    DeviceDiscoveryDecl,
 
     /* Validation Functions */
     isPeerIdentityDecl,

@@ -22,21 +22,20 @@
  */
 
 import express from "express";
-import http from "http";
 
 import { CommandServer } from "./command";
-import { isPeerIdentityDecl } from "./discovery";
+import { PeerIdentityDecl } from "./discovery";
 import {
     ServiceContainer,
     VaultContainer,
     generateNewIdentity,
     configureRoutes,
-    IdentityService
+    IdentityService, ActivityService
 } from "./services";
 
 async function main(services: ServiceContainer): Promise<void> {
     const commands: CommandServer = new class extends CommandServer {
-        private currentVault?: string = null;
+        private currentVault?: string|null = null;
         private vault?: any = null;
 
         async onCreateVault(vaultName: string): Promise<void> {
@@ -115,45 +114,22 @@ async function main(services: ServiceContainer): Promise<void> {
             console.info(`Unimplemented command: peer sync ${peerId}`);
         }
 
-        async onPeerLink(hostname: string, port: number): Promise<void> {
-            console.info(`Connecting to ${hostname}, port ${port}`);
+        async onPeerLink(hostname: string, portNum: number): Promise<void> {
+            console.info(`Connecting to ${hostname}, port ${portNum}`);
 
-            const linkResponse: string | null = await services.vault.getActiveVaultList()
-                .then(async vaults => {
-                    const reqdata = JSON.stringify({
-                        uniqueId: services.identity.getId(),
-                        vaults,
-                    });
+            const request: PeerIdentityDecl = await services.vault.getActiveVaultList()
+                .then(vaults => ({
+                    uniqueId: services.identity.getId(),
+                    vaults
+                }));
+            const response: PeerIdentityDecl|null = await services.activity
+                .publishDevice({ hostname, portNum }, request);
 
-                    return new Promise<string>(function(resolve, reject) {
-                        const req = http.request({
-                                hostname,
-                                port: port.toString(),
-                                path: "/link",
-                                method: "POST",
-                                headers: {
-                                    "Content-Type": "application/json",
-                                    "Content-Length": reqdata.length,
-                                }
-                            },
-                            function(res) {
-                                const data = [];
-                                res.on("data", chunk => data.push(chunk));
-                                res.on("error", err => reject(err));
-                                res.on("end", () => resolve(data.join("")));
-                            });
-                        req.write(reqdata);
-                        req.end();
-                    }).catch(err => (console.error(err), null));
-                });
-
-            const peerIdentity = linkResponse && JSON.parse(linkResponse);
-            if (isPeerIdentityDecl(peerIdentity)) {
-                services.identity.knownPeers.set(peerIdentity.uniqueId, peerIdentity);
-                console.info(`Peer link successful; discovered ${peerIdentity.vaults.length} new vaults`);
+            if (response !== null) {
+                console.info(`Successfully linked with peer ${hostname}:${portNum}`);
             }
             else {
-                console.error("Peer resolved to an invalid identity");
+                console.info(`Failed to link with peer ${hostname}:${portNum}`);
             }
         }
 
@@ -197,6 +173,7 @@ generateNewIdentity()
     .then(id => configureRoutes(express(), {
         vault: new VaultContainer(),
         identity: new IdentityService(id),
+        activity: new ActivityService(),
     }, { portNum: process.argv.length > 2 ? parseInt(process.argv[2]) : 8000 }))
     .then(services => main(services))
     .catch(err => {

@@ -8,6 +8,7 @@
 import {
     PeerIdentityDecl,
     PeerVaultDecl,
+    DeviceDiscoveryDecl,
     isPeerIdentityDecl,
 } from "./discovery";
 
@@ -15,6 +16,7 @@ import express from "express";
 import PouchDB from "pouchdb";
 import usePouchDB from "express-pouchdb";
 import { randomUUID } from "crypto";
+import http from "http";
 
 const MemoryDB = PouchDB.defaults({
     db: require("memdown")
@@ -179,9 +181,69 @@ class IdentityService {
     }
 }
 
+class ActivityService {
+    private async sendLinkRequest(
+        hostname: string,
+        portNum: number,
+        request: string): Promise<PeerIdentityDecl|null>
+    {
+        const peerResponse: string|null = await new Promise<string>(function(resolve, reject) {
+            const req = http.request({
+                    hostname,
+                    port: portNum.toString(),
+                    path: "/link",
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Content-Length": request.length,
+                    }
+                },
+                function(res) {
+                    const data: string[] = [];
+                    res.on("data", chunk => data.push(chunk));
+                    res.on("error", err => reject(err));
+                    res.on("end", () => resolve(data.join("")));
+                });
+            req.write(request);
+            req.on("error", (err: NodeJS.ErrnoException) => {
+                if (err.code === "ECONNREFUSED") {
+                    console.error("Connection refused");
+                    resolve(null);
+                }
+                else {
+                    reject(err);
+                }
+            });
+            req.end();
+        }).catch(err => {
+            console.error(err);
+            return null;
+        });
+
+        const parsedResponse = peerResponse && JSON.parse(peerResponse);
+        return isPeerIdentityDecl(parsedResponse) ? parsedResponse : null;
+    }
+
+    public publishDevice(
+        device: DeviceDiscoveryDecl,
+        reqContent: PeerIdentityDecl): Promise<PeerIdentityDecl|null>
+    {
+        const request = JSON.stringify(reqContent);
+        return this.sendLinkRequest(device.hostname, device.portNum, request)
+            .then(decl => {
+                return decl as PeerIdentityDecl;
+            })
+            .catch(err => {
+                console.error(err);
+                return null;
+            });
+    }
+}
+
 interface ServiceContainer {
     vault: VaultContainer;
     identity: IdentityService;
+    activity: ActivityService;
 }
 
 export {
@@ -189,6 +251,7 @@ export {
     ServiceContainer,
     VaultContainer,
     IdentityService,
+    ActivityService,
 
     /* Configuration Functions */
     configureRoutes,
