@@ -161,18 +161,42 @@ class VaultContainer {
     }
 }
 
+/**
+ * @name IdentityService
+ * @summary Service container for local identity information.
+ * @description Service container which manages known identities on the network.
+ * The identifier for each device is required to be unique within any particular vault network,
+ * and must correspond to the public/private key-pair of the same identity.
+ * The identity's key-pair is used to validate the identity for each request.
+ * @class
+ */
 class IdentityService {
-    public knownPeers: Map<string, PeerIdentityDecl>;
-
-    constructor(private uniqueId: string) {
-        this.knownPeers = new Map<string, PeerIdentityDecl>();
+    private readonly uniqueId: string;
+    constructor(uniqueId: string) {
+        this.uniqueId = uniqueId;
     }
 
+    /**
+     * @name getId
+     * @description Get the unique identifier for the local device's identity.
+     *
+     * @returns String representing the UUID of the local device's identity.
+     */
     public getId(): string {
         return this.uniqueId;
     }
 }
 
+/**
+ * @name ActivityService
+ * @summary Service container for peer discovery activity.
+ * @description Service container which manages the local device's knowledge of peer network activity.
+ * This service container actively manages and tracks the lifetime of peer discovery entries.
+ *
+ * Newly discovered (potential) devices on the local area network are added to the ActivityService database,
+ * which manages the lifetime (including, for example, timeouts) of the device.
+ * Note that active connections are not handled by this container, only locational entries.
+ */
 class ActivityService {
     private readonly activePeerList: Map<string, PeerIdentityDecl>;
     private readonly discoveryPool: Map<string, DeviceDiscoveryDecl>;
@@ -182,6 +206,24 @@ class ActivityService {
         this.discoveryPool = new Map<string, DeviceDiscoveryDecl>();
     }
 
+    /**
+     * @name sendLinkRequest
+     * @private
+     * @function
+     *
+     * @summary Resolve a network address and determines if it points to an active peer device.
+     * @description Connect with the device at the given network address and determine its status.
+     *
+     * The device located at the given endpoint is assumed to be a valid Munkey peer.
+     * If this is the case, the identity information contained at that endpoint is returned.
+     * If the endpoint is invalid (for example, the connection was refused or is not a valid
+     * Munkey peer server), then no identity information is returned.
+     *
+     * @param hostname {string} IP address or hostname of the device.
+     * @param portNum {number} TCP port number of the device.
+     * @returns A valid Peer Identity Declaration struct if the endpoint is valid.
+     * Otherwise, returns null.
+     */
     private async sendLinkRequest(
         hostname: string,
         portNum: number): Promise<PeerIdentityDecl|null>
@@ -217,6 +259,29 @@ class ActivityService {
         return isPeerIdentityDecl(parsedResponse) ? parsedResponse : null;
     }
 
+    /**
+     * @name publishDevice
+     * @public
+     * @function
+     *
+     * @summary Submit a discovered endpoint for a potential peer device.
+     * @description Submit an endpoint for processing and validation.
+     *
+     * The service container will handle validation of the endpoint.
+     * If valid, it will (eventually) be listed as an entry in the Active Peer List.
+     * Absolutely no guarantees are made that the published device will actually appear,
+     * as the published device information may be discarded if deemed invalid for any reason.
+     *
+     * If the success/failure of the published device record must be known,
+     * then the returned promise may be used, though this is not necessary.
+     * Note that the processing of a published device is highly asynchronous,
+     * and may take a significant amount of time to complete.
+     * It is discouraged to "block" execution (i.e. `await`) based on the result.
+     *
+     * @param device {DeviceDiscoveryDecl} Device discovery record to publish to the APL.
+     * @returns {Promise<PeerIdentityDecl | null>} Promise which resolves to an APL entry,
+     * or null if the device endpoint is deemed invalid.
+     */
     public publishDevice(device: DeviceDiscoveryDecl): Promise<PeerIdentityDecl|null>
     {
         return this.sendLinkRequest(device.hostname, device.portNum)
@@ -230,10 +295,51 @@ class ActivityService {
             });
     }
 
+    /**
+     * @name getActiveDevice
+     * @public
+     * @function
+     *
+     * @description Get the identity document of the device from the APL.
+     *
+     * @param device {DeviceDiscoveryDecl} Device discovery record to find the internally known identity of.
+     * @returns Peer identity document belonging to the given device record, if it exists.
+     * If the record was not found, returns null.
+     */
     public getActiveDevice(device: DeviceDiscoveryDecl): PeerIdentityDecl | null {
         return this.activePeerList.get(`${device.hostname}:${device.portNum}`) ?? null;
     }
 
+    /**
+     * @name removeActiveDevice
+     * @public
+     * @function
+     *
+     * @description Remove the given device's information from the APL.
+     * Note that this does not remove any existing connections with the device,
+     * it only prevents future link requests from being automatically made.
+     *
+     * @param device {DeviceDiscoveryDecl} Device discovery record to remove from the APL.
+     * @returns Boolean indicated whether that device was found in the APL.
+     * Return of false indicates that record did not exist, and so no change was made to the APL.
+     */
+    public removeActiveDevice(device: DeviceDiscoveryDecl): boolean {
+        return this.activePeerList.delete(`${device.hostname}:${device.portNum}`);
+    }
+
+    /**
+     * @name getActiveDevices
+     * @public
+     * @function
+     *
+     * @summary Iterate over the contents of the APL.
+     * @description Iterate over the list of device and identity entries in the APL.
+     * The values returned by the iterator are considered a point-in-time "snapshot" of the APL.
+     * As such, no guarantee is made that the entries will remain valid after iteration.
+     *
+     * @returns Iterator over tuple: (hostname, portNum, identityDocument).
+     * Each tuple represents a single entry in the APL.
+     */
     public *getActiveDevices(): Generator<[string, number, PeerIdentityDecl]> {
         for (let [location, identity] of this.activePeerList) {
             const [hostname, portNum]: string[] = location.split(":", 2);
