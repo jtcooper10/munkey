@@ -22,12 +22,20 @@
  */
 
 import express from "express";
-import { CommandServer } from "./command";
-import { ServiceContainer, configureRoutes, VaultContainer } from "./services";
 
-async function main(app: express.Application, services: ServiceContainer): Promise<void> {
+import { CommandServer } from "./command";
+import { PeerIdentityDecl } from "./discovery";
+import {
+    ServiceContainer,
+    VaultContainer,
+    generateNewIdentity,
+    configureRoutes,
+    IdentityService, ActivityService
+} from "./services";
+
+async function main(services: ServiceContainer): Promise<void> {
     const commands: CommandServer = new class extends CommandServer {
-        private currentVault?: string = null;
+        private currentVault?: string|null = null;
         private vault?: any = null;
 
         async onCreateVault(vaultName: string): Promise<void> {
@@ -43,6 +51,14 @@ async function main(app: express.Application, services: ServiceContainer): Promi
                 entries: {},
             });
             this.currentVault = vaultName;
+        }
+
+        async onListVaults(): Promise<void> {
+            console.info(":: :: Active  Vaults :: ::");
+
+            for (let vault of await services.vault.getActiveVaultList()) {
+                console.info(` ${vault.vaultId === this.currentVault ? " " : "*"} [${vault.vaultId}] ${vault.nickname}`);
+            }
         }
 
         async onAddVaultEntry(entryKey: string, data: string): Promise<void> {
@@ -98,6 +114,28 @@ async function main(app: express.Application, services: ServiceContainer): Promi
             console.info(`Unimplemented command: peer sync ${peerId}`);
         }
 
+        async onPeerLink(hostname: string, portNum: number): Promise<void> {
+            console.info(`Connecting to ${hostname}, port ${portNum}`);
+            const response: PeerIdentityDecl|null = await services.activity
+                .publishDevice({ hostname, portNum });
+
+            if (response !== null) {
+                console.info(`Successfully linked with peer ${hostname}:${portNum}`);
+            }
+            else {
+                console.info(`Failed to link with peer ${hostname}:${portNum}`);
+            }
+        }
+
+        async onPeerList(): Promise<void> {
+            for (let [hostname, portNum, identity] of services.activity.getActiveDevices()) {
+                console.info(` Peer[${identity.uniqueId}]@${hostname}:${portNum}`);
+                for (let vault of identity.vaults) {
+                    console.info(`\t* "${vault.nickname}": Vault[${vault.vaultId}]`);
+                }
+            }
+        }
+
         async onUnknownCommand([command = "unknown", ...args]: string[] = []): Promise<void> {
             if (["q", "quit", "exit"].includes(command?.toLowerCase())) {
                 console.info("Goodbye!");
@@ -125,10 +163,13 @@ async function main(app: express.Application, services: ServiceContainer): Promi
         .then(() => process.exit(0));
 }
 
-configureRoutes(express())
-    .then(app => main(app, {
+generateNewIdentity()
+    .then(id => configureRoutes(express(), {
         vault: new VaultContainer(),
-    }))
+        identity: new IdentityService(id),
+        activity: new ActivityService(),
+    }, { portNum: process.argv.length > 2 ? parseInt(process.argv[2]) : 8000 }))
+    .then(services => main(services))
     .catch(err => {
         console.error(err);
     });

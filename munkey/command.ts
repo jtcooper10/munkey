@@ -52,10 +52,12 @@ abstract class CommandServer {
                 }
                 return this.onGetVaultEntry(entryKey);
             },
+
+            "list": this.onListVaults.bind(this),
         },
         "link": {
-            "up": this.onLinkUp,
-            "down": this.onLinkDown,
+            "up": this.onLinkUp.bind(this),
+            "down": this.onLinkDown.bind(this),
         },
         "peer": {
             "sync": ([peerId = null]: string[] = []): Promise<void> => {
@@ -65,6 +67,38 @@ abstract class CommandServer {
                 }
                 return this.onPeerSync(peerId);
             },
+            "link": ([connection = null]: string[] = []): Promise<void> => {
+                if (connection === null) {
+                    console.error("Missing connection string for peer link");
+                    return Promise.resolve();
+                }
+
+                // List of errors is tracked rather than one error.
+                // This is because there is often >1 issue involved with parsing.
+                let errorsFound: string[] = [],
+                    hostname: string,
+                    portNum: string|number;
+                [hostname, portNum] = connection.split(":", 2);
+                portNum = parseInt(portNum) as number;
+
+                if (hostname.length < 1) {
+                    errorsFound.push(`Could not parse hostname from connection string [${connection}]`);
+                }
+                if (isNaN(portNum)) {
+                    errorsFound.push(`Could not parse port number from connection string [${connection}]`);
+                }
+
+                if (errorsFound.length > 0) {
+                    for (let errString of errorsFound) {
+                        console.error(errString);
+                    }
+                    return Promise.resolve();
+                }
+                else {
+                    return this.onPeerLink(hostname, portNum);
+                }
+            },
+            "list": this.onPeerList.bind(this),
         }
     }
 
@@ -113,6 +147,9 @@ abstract class CommandServer {
             forward: CommandEntry = this.commands;
         do {
             [command, ...commandArgs] = commandArgs;
+            if (!(command in forward)) {
+
+            }
             ({ [command]: forward } = forward);
         } while (forward && !(forward instanceof Function));
 
@@ -124,11 +161,14 @@ abstract class CommandServer {
     abstract onCreateVault(vaultName: string): Promise<void>;
     abstract onAddVaultEntry(entryKey: string, data: string): Promise<void>;
     abstract onGetVaultEntry(entryKey: string): Promise<void>;
+    abstract onListVaults(): Promise<void>;
 
     abstract onLinkUp(): Promise<void>;
     abstract onLinkDown(): Promise<void>;
 
     abstract onPeerSync(peerId: string): Promise<void>;
+    abstract onPeerLink(hostname: string, portNum: number): Promise<void>;
+    abstract onPeerList(): Promise<void>;
 
     async onUnknownCommand?(args: string[]): Promise<void> {}
     async onStartup?(): Promise<void> {}

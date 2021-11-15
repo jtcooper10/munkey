@@ -3,7 +3,7 @@
         "module": "commonjs",
         "esModuleInterop": true,
         "moduleResolution": "node",
-        "target": "ES6",
+        "target": "ESNext",
         "composite": true,
         "sourceMap": true,
         "types": [
@@ -17,6 +17,7 @@
     "include": [
         "munkey.ts",
         "command.ts",
-        "services.ts"
+        "services.ts",
+        "discovery.ts"
     ]
 }
