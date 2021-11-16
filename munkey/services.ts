@@ -17,9 +17,10 @@ import PouchDB from "pouchdb";
 import usePouchDB from "express-pouchdb";
 import {randomUUID} from "crypto";
 import http from "http";
+import memdown from "memdown";
 
-const MemoryDB = PouchDB.defaults({
-    db: require("memdown")
+const MemoryDB = PouchDB.defaults(<PouchDB.Configuration.DatabaseConfiguration> {
+    db: memdown
 });
 
 interface ServerOptions {
@@ -348,10 +349,49 @@ class ActivityService {
     }
 }
 
+/**
+ * @name ConnectionService
+ * @class
+ * @summary Service container for peer database connections.
+ * @description Service container for managing peer endpoints for CouchDB connections.
+ * Endpoints listed in the container may or may not be currently active, no guarantees are made about
+ * the endpoint itself (except the fact that it, at one point, contained an active database).
+ *
+ * For the most part, operations are performed in aggregate over all active databases.
+ * In rare cases, you may request and operate on a single endpoint.
+ */
+class ConnectionService {
+    private readonly connections: Map<string, PouchDB.Database>;
+
+    constructor() {
+        this.connections = new Map<string, PouchDB.Database>();
+    }
+
+    public publishDatabaseConnection(device: DeviceDiscoveryDecl) {
+        this.connections.set(
+            `${device.hostname}:${device.portNum}`,
+            new PouchDB(`http://${device.hostname}:${device.portNum}/db`),
+        );
+    }
+
+    public applyAll(applicationCallback: (db: PouchDB.Database) => boolean) {
+        const removals: string[] = [];
+
+        for (let [location, database] of this.connections) {
+            if (!applicationCallback(database)) {
+                removals.push(location);
+            }
+        }
+
+        removals.forEach(removalKey => this.connections.delete(removalKey));
+    }
+}
+
 interface ServiceContainer {
     vault: VaultContainer;
     identity: IdentityService;
     activity: ActivityService;
+    connection: ConnectionService;
 }
 
 export {
@@ -360,6 +400,7 @@ export {
     VaultContainer,
     IdentityService,
     ActivityService,
+    ConnectionService,
 
     /* Configuration Functions */
     configureRoutes,

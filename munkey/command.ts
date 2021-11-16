@@ -56,6 +56,30 @@ abstract class CommandServer {
             },
 
             "list": this.onListVaults.bind(this),
+
+            "link": ([linkTarget = null]: string[]): Promise<void> => {
+                if (linkTarget === null) {
+                    console.error("Missing link target for vault link");
+                    return Promise.resolve();
+                }
+
+                const [vaultName, connection]: string[] = linkTarget.split("@");
+                if (vaultName.trim().length === 0) {
+                    console.error("Missing vault name from link target");
+                    return Promise.resolve();
+                }
+
+                let hostname: string, portNum: number;
+                try {
+                    [hostname, portNum] = this.resolveHost(connection);
+                }
+                catch (err) {
+                    console.error("Failed to parse connection string");
+                    return Promise.resolve();
+                }
+
+                return this.onVaultLink(hostname, portNum, vaultName);
+            }
         },
         "link": {
             "up": this.onLinkUp.bind(this),
@@ -75,30 +99,16 @@ abstract class CommandServer {
                     return Promise.resolve();
                 }
 
-                // List of errors is tracked rather than one error.
-                // This is because there is often >1 issue involved with parsing.
-                let errorsFound: string[] = [],
-                    hostname: string,
-                    portNum: string|number;
-                [hostname, portNum] = connection.split(":", 2);
-                portNum = parseInt(portNum) as number;
-
-                if (hostname.length < 1) {
-                    errorsFound.push(`Could not parse hostname from connection string [${connection}]`);
+                let hostname: string, portNum: number;
+                try {
+                    [hostname, portNum] = this.resolveHost(connection);
                 }
-                if (isNaN(portNum)) {
-                    errorsFound.push(`Could not parse port number from connection string [${connection}]`);
-                }
-
-                if (errorsFound.length > 0) {
-                    for (let errString of errorsFound) {
-                        console.error(errString);
-                    }
+                catch (err) {
+                    console.error("Failed to parse host string");
                     return Promise.resolve();
                 }
-                else {
-                    return this.onPeerLink(hostname, portNum);
-                }
+
+                return this.onPeerLink(hostname, portNum);
             },
             "list": this.onPeerList.bind(this),
         }
@@ -160,10 +170,37 @@ abstract class CommandServer {
             : this.onUnknownCommand(args);
     }
 
+    private resolveHost(connection: string): [string, number] | null {
+        // List of errors is tracked rather than one error.
+        // This is because there is often >1 issue involved with parsing.
+        let errorsFound: string[] = [],
+            hostname: string,
+            portNum: string|number;
+        [hostname, portNum] = connection.split(":", 2);
+        portNum = parseInt(portNum) as number;
+
+        if (hostname.length < 1) {
+            errorsFound.push(`Could not parse hostname from connection string [${connection}]`);
+        }
+        if (isNaN(portNum)) {
+            errorsFound.push(`Could not parse port number from connection string [${connection}]`);
+        }
+
+        if (errorsFound.length > 0) {
+            for (let errString of errorsFound) {
+                console.error(errString);
+            }
+            return null;
+        }
+
+        return [hostname, portNum];
+    }
+
     abstract onCreateVault(vaultName: string): Promise<void>;
     abstract onAddVaultEntry(entryKey: string, data: string): Promise<void>;
     abstract onGetVaultEntry(entryKey: string): Promise<void>;
     abstract onListVaults(): Promise<void>;
+    abstract onVaultLink(hostname: string, portNum: number, vaultName: string): Promise<void>;
 
     abstract onLinkUp(): Promise<void>;
     abstract onLinkDown(): Promise<void>;
@@ -252,6 +289,12 @@ class ShellCommandServer extends CommandServer {
         else {
             console.info(`[${entryKey}] = ${data}`);
         }
+    }
+
+    async onVaultLink(hostname: string, portNum: number, vaultId: string): Promise<void> {
+        console.info(`Connecting with vault ${vaultId}@${hostname}:${portNum}`);
+
+        this.services.connection.publishDatabaseConnection({ hostname, portNum });
     }
 
     async onLinkUp(): Promise<void> {

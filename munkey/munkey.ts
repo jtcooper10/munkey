@@ -29,7 +29,9 @@ import {
     VaultContainer,
     generateNewIdentity,
     configureRoutes,
-    IdentityService, ActivityService
+    IdentityService,
+    ActivityService,
+    ConnectionService,
 } from "./services";
 
 async function main(services: ServiceContainer): Promise<void> {
@@ -43,6 +45,7 @@ generateNewIdentity()
         vault: new VaultContainer(),
         identity: new IdentityService(id),
         activity: new ActivityService(),
+        connection: new ConnectionService(),
     }, { portNum: process.argv.length > 2 ? parseInt(process.argv[2]) : 8000 }))
     .then(services => main(services))
     .catch(err => {
