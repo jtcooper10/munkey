@@ -27,6 +27,12 @@ interface ServerOptions {
     portNum: number;
 }
 
+interface DatabaseDocument {
+    _id: string;
+    _rev?: string;
+    entries?: { [entry: string]: string };
+}
+
 /**
  * @name generateNewIdentity
  * @summary Create a brand-new identity object (as of v0.0.1, just a string) from random.
@@ -89,10 +95,14 @@ function configureRoutes(
  * @class
  */
 class VaultContainer {
-    private readonly vaultMap: Map<string, any>;
+    private readonly vaultMap: Map<string, PouchDB.Database<DatabaseDocument>>;
+    private readonly vaultIdMap: Map<string, string>;
+    private activeVault: string | null;
 
     constructor() {
-        this.vaultMap = new Map<string, any>();
+        this.vaultMap = new Map<string, PouchDB.Database<DatabaseDocument>>();
+        this.vaultIdMap = new Map<string, string>();
+        this.activeVault = null;
     }
 
     /**
@@ -101,26 +111,62 @@ class VaultContainer {
      * If a vault with that ID doesn't exist yet, it is created.
      * If a vault with that ID already exists, it is returned unmodified.
      * 
-     * @param {string} vaultId Unique ID corresponding to the desired vault.
-     * @returns Potentially new PouchDB instance with the specified name.
+     * @param {string} vaultName Unique "nickname" corresponding to the desired vault.
+     * The vault is issued a new, randomly generated UUID on creation.
+     * @param {string} vaultId Suggested UUID for the new vault.
+     * Recommended only when the vault you are creating already exists.
+     * @returns {string|null} UUID of new (or existing) PouchDB database.
      */
-    public createVault(vaultId: string) {
-        let vault: any = this.vaultMap.get(vaultId);
-        return vault ?? this.vaultMap
-            .set(vaultId, new MemoryDB(vaultId))
-            .get(vaultId);
+    public createVault(vaultName: string, vaultId?: string | null): Promise<string | null> {
+        if (!vaultName) {
+            throw new ReferenceError(`Invalid vault name: ${vaultName}`);
+        }
+
+        vaultId ??= (this.vaultIdMap.get(vaultName) || null);
+        let vault: PouchDB.Database<DatabaseDocument> | null = vaultId && this.vaultMap.get(vaultId) || null;
+
+        if (!vault) {
+            // Vault not found; create it and initialize its schema.
+            this.vaultIdMap.set(vaultName, vaultId ??= randomUUID());
+            this.vaultMap.set(vaultId, vault = new MemoryDB(vaultName));
+            this.activeVault = vaultId;
+            return vault.put({
+                    _id: "dict",
+                    entries: {},
+                })
+                .then(() => vault)
+                .catch(err => {
+                    console.error(err);
+                    return null;
+                });
+        }
+
+        return Promise.resolve(vaultId);
     }
 
     /**
-     * @name getVault
+     * @name getVaultByName
      * @description Find the vault with the given ID.
      * If none exists with that ID, returns undefined.
      * 
      * @returns PouchDB instance if one with the provided ID exists.
      * Otherwise, returns undefined.
      */
-    public getVault(vaultId: string) {
-        return this.vaultMap.get(vaultId);
+    public getVaultByName(vaultName: string): PouchDB.Database<DatabaseDocument> | null {
+        let vaultId: string | null = this.vaultIdMap.get(vaultName) || null;
+        return vaultId && this.getVaultById(vaultId);
+    }
+
+    public getVaultById(vaultId: string): PouchDB.Database<DatabaseDocument> | null {
+        return this.vaultMap.get(vaultId) || null;
+    }
+
+    public getActiveVault(): PouchDB.Database<DatabaseDocument> | null {
+        return this.vaultMap.get(this.activeVault) || null;
+    }
+
+    public getActiveVaultId(): string | null {
+        return this.activeVault;
     }
 
     /**
@@ -134,10 +180,10 @@ class VaultContainer {
      * @returns Async iterable which resolves to a unique Peer Vault Declaration record on each iteration.
      */
     public async* getActiveVaults(): AsyncIterable<PeerVaultDecl> {
-        for (let [vaultName] of this.vaultMap) {
+        for (let [vaultName, vaultId] of this.vaultIdMap) {
             yield {
                 nickname: vaultName,
-                vaultId: vaultName,
+                vaultId: vaultId,
             };
         }
     }
@@ -329,7 +375,7 @@ class ActivityService {
     }
 
     /**
-     * @name getActiveDevices
+     * @name getAllDevices
      * @public
      * @function
      *
@@ -341,7 +387,7 @@ class ActivityService {
      * @returns Iterator over tuple: (hostname, portNum, identityDocument).
      * Each tuple represents a single entry in the APL.
      */
-    public *getActiveDevices(): Generator<[string, number, PeerIdentityDecl]> {
+    public *getAllDevices(): Generator<[string, number, PeerIdentityDecl]> {
         for (let [location, identity] of this.activePeerList) {
             const [hostname, portNum]: string[] = location.split(":", 2);
             yield [hostname, parseInt(portNum), identity];
@@ -361,17 +407,48 @@ class ActivityService {
  * In rare cases, you may request and operate on a single endpoint.
  */
 class ConnectionService {
-    private readonly connections: Map<string, PouchDB.Database>;
+    /**
+     * @name connections
+     * @private
+     *
+     * @summary Map containing active database connection objects.
+     * Map keys are the UUID of the remote vault, values are the connections themselves.
+     */
+    private readonly connections: Map<string, PouchDB.Database<DatabaseDocument>>;
 
     constructor() {
-        this.connections = new Map<string, PouchDB.Database>();
+        this.connections = new Map<string, PouchDB.Database<DatabaseDocument>>();
     }
 
-    public publishDatabaseConnection(device: DeviceDiscoveryDecl) {
+    public publishDatabaseConnection(device: DeviceDiscoveryDecl, vaultName: string, vaultId: string) {
         this.connections.set(
-            `${device.hostname}:${device.portNum}`,
-            new PouchDB(`http://${device.hostname}:${device.portNum}/db`),
+            vaultId,
+            new PouchDB(`http://${device.hostname}:${device.portNum}/db/${vaultName}`),
         );
+    }
+
+    /**
+     * @name getAllConnections
+     * @public
+     * @function
+     *
+     * @summary Iterate over (id, database) pairs of active database connections.
+     */
+    public *getAllConnections(): Generator<[string, PouchDB.Database<DatabaseDocument>]> {
+        for (let [connection, database] of this.connections) {
+            yield [
+                connection,
+                database
+            ];
+        }
+    }
+
+    public *getActiveConnections(vaultId: string): Generator<PouchDB.Database<DatabaseDocument>> {
+        for (let [connId, connection] of this.connections) {
+            if (connId === vaultId) {
+                yield connection;
+            }
+        }
     }
 
     public applyAll(applicationCallback: (db: PouchDB.Database) => boolean) {
@@ -405,4 +482,7 @@ export {
     /* Configuration Functions */
     configureRoutes,
     generateNewIdentity,
+
+    /* TS Interfaces */
+    DatabaseDocument,
 };
