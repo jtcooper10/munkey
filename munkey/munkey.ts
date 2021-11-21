@@ -22,6 +22,7 @@
  */
 
 import express from "express";
+import winston from "winston";
 
 import { CommandServer, ShellCommandServer } from "./command";
 import {
@@ -33,6 +34,38 @@ import {
     ActivityService,
     ConnectionService,
 } from "./services";
+
+const uniformPrint = winston.format.printf(function(
+    info: winston.Logform.TransformableInfo & { label: string, timestamp: string }): string
+{
+    return `[${info.level}::${info.label}] ${info.message}`;
+});
+
+const addUniformLogger = function(serviceName: string): winston.Logger {
+    winston.loggers.add(serviceName, {
+        format: winston.format.combine(
+            winston.format.splat(),
+            winston.format.colorize(),
+            winston.format.label({ label: serviceName }),
+            winston.format.timestamp(),
+            uniformPrint,
+        ),
+        transports: [
+            new winston.transports.Console({ level: "info" }),
+        ]
+    });
+
+    return winston.loggers.get(serviceName);
+};
+
+const configureLogging = function(services: ServiceContainer): typeof services {
+    Object.entries(services)
+        .forEach(function([serviceName, service]) {
+            service.useLogging(addUniformLogger(serviceName));
+        });
+
+    return services;
+};
 
 async function main(services: ServiceContainer): Promise<void> {
     const commands: CommandServer = new ShellCommandServer(services);
@@ -46,7 +79,11 @@ generateNewIdentity()
         identity: new IdentityService(id),
         activity: new ActivityService(),
         connection: new ConnectionService(),
-    }, { portNum: process.argv.length > 2 ? parseInt(process.argv[2]) : 8000 }))
+    }, {
+        portNum: process.argv.length > 2 ? parseInt(process.argv[2]) : 8000,
+        logging: addUniformLogger("http"),
+    }))
+    .then(services => configureLogging(services))
     .then(services => main(services))
     .catch(err => {
         console.error(err);

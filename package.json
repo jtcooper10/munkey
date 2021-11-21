@@ -27,9 +27,11 @@
     "typescript": "^4.4.4"
   },
   "dependencies": {
+    "@types/winston": "^2.4.4",
     "express": "^4.17.1",
     "express-pouchdb": "^4.2.0",
     "memdown": "^6.1.1",
-    "pouchdb": "^7.2.2"
+    "pouchdb": "^7.2.2",
+    "winston": "^3.3.3"
   }
 }

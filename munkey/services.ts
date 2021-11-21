@@ -17,6 +17,7 @@ import PouchDB from "pouchdb";
 import usePouchDB from "express-pouchdb";
 import {randomUUID} from "crypto";
 import http from "http";
+import winston from "winston";
 import memdown from "memdown";
 
 const MemoryDB = PouchDB.defaults(<PouchDB.Configuration.DatabaseConfiguration> {
@@ -25,6 +26,7 @@ const MemoryDB = PouchDB.defaults(<PouchDB.Configuration.DatabaseConfiguration> 
 
 interface ServerOptions {
     portNum: number;
+    logging?: winston.Logger;
 }
 
 interface DatabaseDocument {
@@ -54,6 +56,8 @@ function generateNewIdentity(): Promise<string> {
  * @param {ServiceContainer} services Service container to attach endpoints to.
  * Any updates issued by the web server will be applied to this service container.
  * @param {number} portNum Port number for the web server to listen on.
+ * @param {winston.Logger} logging Logging container used to log HTTP requests by the server.
+ * If not specified, no logging is captured.
  *
  * @returns Promise which resolves to a fully-configured Express.js application object.
  * The resolved application object is the same object as is passed in, but configured.
@@ -61,7 +65,7 @@ function generateNewIdentity(): Promise<string> {
 function configureRoutes(
     app: express.Application,
     services: ServiceContainer,
-    { portNum = 8000 }: ServerOptions = { portNum: 8000 }): Promise<ServiceContainer>
+    { portNum = 8000, logging = null }: ServerOptions = { portNum: 8000 }): Promise<ServiceContainer>
 {
     app.use("/link", express.json());
 
@@ -81,7 +85,7 @@ function configureRoutes(
 
     return new Promise(function(resolve, reject) {
         app.listen(portNum, function() {
-            console.info(`Listening on port ${portNum}`);
+            logging?.info("Listening on port %d", portNum);
             resolve(services);
         });
 
@@ -89,17 +93,30 @@ function configureRoutes(
     });
 }
 
+class Service {
+    protected logger: winston.Logger;
+
+    constructor() {
+        this.logger = winston.child({});
+    }
+
+    public useLogging(logger: winston.Logger) {
+        this.logger = logger;
+    }
+}
+
 /**
  * @name VaultContainer
  * @summary IoC container for the application state of all PouchDB vaults.
  * @class
  */
-class VaultContainer {
+class VaultContainer extends Service {
     private readonly vaultMap: Map<string, PouchDB.Database<DatabaseDocument>>;
     private readonly vaultIdMap: Map<string, string>;
     private activeVault: string | null;
 
     constructor() {
+        super();
         this.vaultMap = new Map<string, PouchDB.Database<DatabaseDocument>>();
         this.vaultIdMap = new Map<string, string>();
         this.activeVault = null;
@@ -136,7 +153,7 @@ class VaultContainer {
                 })
                 .then(() => vault)
                 .catch(err => {
-                    console.error(err);
+                    this.logger.error(err);
                     return null;
                 });
         }
@@ -222,6 +239,7 @@ class VaultContainer {
         const vault: PouchDB.Database<DatabaseDocument> = this.getVaultById(vaultId);
 
         for (let connection of connections.getActiveConnections(vaultId)) {
+            this.logger.info("Syncing with peer %s", connection.name);
             await vault.sync(connection);
         }
     }
@@ -236,9 +254,10 @@ class VaultContainer {
  * The identity's key-pair is used to validate the identity for each request.
  * @class
  */
-class IdentityService {
+class IdentityService extends Service {
     private readonly uniqueId: string;
     constructor(uniqueId: string) {
+        super();
         this.uniqueId = uniqueId;
     }
 
@@ -263,11 +282,12 @@ class IdentityService {
  * which manages the lifetime (including, for example, timeouts) of the device.
  * Note that active connections are not handled by this container, only locational entries.
  */
-class ActivityService {
+class ActivityService extends Service {
     private readonly activePeerList: Map<string, PeerIdentityDecl>;
     private readonly discoveryPool: Map<string, DeviceDiscoveryDecl>;
 
     constructor() {
+        super();
         this.activePeerList = new Map<string, PeerIdentityDecl>();
         this.discoveryPool = new Map<string, DeviceDiscoveryDecl>();
     }
@@ -294,6 +314,7 @@ class ActivityService {
         hostname: string,
         portNum: number): Promise<PeerIdentityDecl|null>
     {
+        const logger = this.logger;
         const peerResponse: string|null = await new Promise<string>(function(resolve, reject) {
             http.get({
                     hostname,
@@ -308,7 +329,7 @@ class ActivityService {
                 })
                 .on("error", (err: NodeJS.ErrnoException) => {
                     if (err.code === "ECONNREFUSED") {
-                        console.error("Connection refused");
+                        logger.error("Connection Refused %s:%d", hostname, portNum);
                         resolve(null);
                     }
                     else {
@@ -317,7 +338,7 @@ class ActivityService {
                 });
         })
         .catch(err => {
-            console.error(err);
+            logger.error(err);
             return null;
         });
 
@@ -356,7 +377,7 @@ class ActivityService {
                 return decl as PeerIdentityDecl;
             })
             .catch(err => {
-                console.error(err);
+                this.logger.error(err);
                 return null;
             });
     }
@@ -425,7 +446,7 @@ class ActivityService {
  * For the most part, operations are performed in aggregate over all active databases.
  * In rare cases, you may request and operate on a single endpoint.
  */
-class ConnectionService {
+class ConnectionService extends Service {
     /**
      * @name connections
      * @private
@@ -436,6 +457,7 @@ class ConnectionService {
     private readonly connections: Map<string, PouchDB.Database<DatabaseDocument>>;
 
     constructor() {
+        super();
         this.connections = new Map<string, PouchDB.Database<DatabaseDocument>>();
     }
 
@@ -483,7 +505,11 @@ class ConnectionService {
     }
 }
 
-interface ServiceContainer {
+interface ServiceList {
+    [serviceName: string]: Service;
+}
+
+interface ServiceContainer extends ServiceList {
     vault: VaultContainer;
     identity: IdentityService;
     activity: ActivityService;
@@ -504,4 +530,6 @@ export {
 
     /* TS Interfaces */
     DatabaseDocument,
+    Service,
+    ServiceList,
 };
