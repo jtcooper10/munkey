@@ -73,7 +73,7 @@ abstract class CommandServer {
 
             "list": this.onListVaults.bind(this),
 
-            "link": ([linkTarget = null]: string[]): Promise<void> => {
+            "link": ([linkTarget = null, ...rest]: string[]): Promise<void> => {
                 if (linkTarget === null) {
                     console.error("Missing link target for vault link");
                     return Promise.resolve();
@@ -92,6 +92,15 @@ abstract class CommandServer {
                 catch (err) {
                     console.error("Failed to parse connection string");
                     return Promise.resolve();
+                }
+
+                const [subCommand = null, subArg = null]: (string | null)[] = rest;
+                if (subCommand?.toLowerCase() === "as") {
+                    if (subArg === null) {
+                        console.error("Missing local nickname for vault link");
+                        return Promise.resolve();
+                    }
+                    return this.onVaultLink(hostname, portNum, vaultName, subArg);
                 }
 
                 return this.onVaultLink(hostname, portNum, vaultName);
@@ -219,7 +228,7 @@ abstract class CommandServer {
     abstract onSetVaultEntry(entryKey: string, data: string): Promise<void>;
     abstract onGetVaultEntry(entryKey: string): Promise<void>;
     abstract onListVaults(): Promise<void>;
-    abstract onVaultLink(hostname: string, portNum: number, vaultName: string): Promise<void>;
+    abstract onVaultLink(hostname: string, portNum: number, vaultName: string, vaultNickname?: string): Promise<void>;
     abstract onVaultSync(): Promise<void>;
 
     abstract onLinkUp(): Promise<void>;
@@ -336,7 +345,10 @@ class ShellCommandServer extends CommandServer {
         }
     }
 
-    async onVaultLink(hostname: string, portNum: number, vaultName: string): Promise<void> {
+    async onVaultLink(
+        hostname: string, portNum: number,
+        vaultName: string, vaultNickname: string = vaultName): Promise<void>
+    {
         console.info(`Connecting with vault ${vaultName}@${hostname}:${portNum}`);
 
         // There are 3 general cases for `vault link`:
@@ -361,7 +373,7 @@ class ShellCommandServer extends CommandServer {
             if (!localVault) {
                 // TODO: allow the user to specify their own local nickname.
                 // Relying on the remote database's vault name is subject to collisions.
-                vaultId = await this.services.vault.createVault(vaultName, vaultId);
+                vaultId = await this.services.vault.createVault(vaultNickname, vaultId);
                 vaultId && this.services.vault.subscribeVaultById(vaultId, () =>
                     this.services.vault.syncActiveVaults(vaultId, this.services.connection));
             }
