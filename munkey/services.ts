@@ -480,10 +480,6 @@ class ConnectionService extends Service {
     }
 
     public publishDatabaseConnection(device: DeviceDiscoveryDecl, vaultName: string, vaultId: string) {
-        // this.connections.set(
-        //     vaultId,
-        //     new PouchDB(`http://${device.hostname}:${device.portNum}/db/${vaultName}`),
-        // );
         let connectionList: PouchDB.Database<DatabaseDocument>[] | null = this.connections.get(vaultId) || null;
         if (!connectionList) {
             connectionList = this.connections.set(vaultId, []).get(vaultId);
