@@ -106,11 +106,11 @@ class Service {
 }
 
 /**
- * @name VaultContainer
+ * @name VaultService
  * @summary IoC container for the application state of all PouchDB vaults.
  * @class
  */
-class VaultContainer extends Service {
+class VaultService extends Service {
     private readonly vaultMap: Map<string, PouchDB.Database<DatabaseDocument>>;
     private readonly vaultIdMap: Map<string, string>;
     private activeVault: string | null;
@@ -162,6 +162,34 @@ class VaultContainer extends Service {
         return Promise.resolve(vaultId);
     }
 
+    public async deleteVaultById(vaultId: string, vaultName: string): Promise<void> {
+        const vault = this.vaultMap.get(vaultId);
+
+        if (vault) {
+            this.logger.info("Deleting...");
+
+            this.activeVault = null;
+            this.vaultMap.delete(vaultId);
+            this.vaultIdMap.delete(vaultName);
+            await vault.destroy()
+                .catch(err => this.logger.error("Failed to delete database with ID %s", vaultId, err));
+        }
+        else {
+            this.logger.error(`Could not resolve vault ID ${vaultId}`, { action: "delete" });
+        }
+    }
+
+    public async deleteVaultByName(vaultName: string): Promise<void> {
+        const vaultId: string = this.vaultIdMap.get(vaultName);
+
+        if (vaultId) {
+            await this.deleteVaultById(vaultId, vaultName);
+        }
+        else {
+            this.logger.warning(`Could not resolve local vault name: ${vaultName}`, { action: "delete" });
+        }
+    }
+
     /**
      * @name getVaultByName
      * @description Find the vault with the given ID.
@@ -177,6 +205,19 @@ class VaultContainer extends Service {
 
     public getVaultById(vaultId: string): PouchDB.Database<DatabaseDocument> | null {
         return this.vaultMap.get(vaultId) || null;
+    }
+
+    public setActiveVaultById(vaultId: string): PouchDB.Database<DatabaseDocument> | null {
+        const vault = this.vaultMap.get(vaultId) || null;
+        if (vault) {
+            this.activeVault = vaultId;
+        }
+        return vault;
+    }
+
+    public setActiveVaultByName(vaultName: string): PouchDB.Database<DatabaseDocument> | null {
+        const vaultId: string = this.vaultIdMap.get(vaultName) || null;
+        return this.setActiveVaultById(vaultId);
     }
 
     public getActiveVault(): PouchDB.Database<DatabaseDocument> | null {
@@ -210,7 +251,7 @@ class VaultContainer extends Service {
      * @name getActiveVaultList
      * @summary Generate a list of active Peer Vault Declaration records.
      * @description Generate an array containing the Peer Vault Declaration record for all active vaults.
-     * Similar to the method {@link VaultContainer#getActiveVaults}, but returns a complete list instead of iterating.
+     * Similar to the method {@link VaultService#getActiveVaults}, but returns a complete list instead of iterating.
      * No guarantees are made by the function in terms of race conditions.
      * If, for example, a new vault entry is added before the vault iteration completes,
      * it is not guaranteed that the new entry will be made visible to the iterator.
@@ -521,7 +562,7 @@ interface ServiceList {
 }
 
 interface ServiceContainer extends ServiceList {
-    vault: VaultContainer;
+    vault: VaultService;
     identity: IdentityService;
     activity: ActivityService;
     connection: ConnectionService;
@@ -530,7 +571,7 @@ interface ServiceContainer extends ServiceList {
 export {
     /* Service Classes */
     ServiceContainer,
-    VaultContainer,
+    VaultService,
     IdentityService,
     ActivityService,
     ConnectionService,

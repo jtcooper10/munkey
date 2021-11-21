@@ -27,7 +27,7 @@ import winston from "winston";
 import { CommandServer, ShellCommandServer } from "./command";
 import {
     ServiceContainer,
-    VaultContainer,
+    VaultService,
     generateNewIdentity,
     configureRoutes,
     IdentityService,
@@ -75,7 +75,7 @@ async function main(services: ServiceContainer): Promise<void> {
 
 generateNewIdentity()
     .then(id => configureRoutes(express(), {
-        vault: new VaultContainer(),
+        vault: new VaultService(),
         identity: new IdentityService(id),
         activity: new ActivityService(),
         connection: new ConnectionService(),

@@ -39,6 +39,22 @@ abstract class CommandServer {
                 return this.onCreateVault(vaultName);
             },
 
+            "delete": ([vaultName = null]: string[] = []): Promise<void> => {
+                if (vaultName === null) {
+                    console.error("Missing name for vault deletion");
+                    return Promise.resolve();
+                }
+                return this.onDeleteVault(vaultName);
+            },
+
+            "use": ([vaultName = null]: string[] = []): Promise<void> => {
+                if (vaultName === null) {
+                    console.error("Missing name for vault switch");
+                    return Promise.resolve();
+                }
+                return this.onUseVault(vaultName);
+            },
+
             "set": ([entryKey = null, entryData = null]: string[] = []): Promise<void> => {
                 if (entryKey === null || entryData === null) {
                     console.error(`Missing ${entryKey ? "data" : "key name"} for entry creation`);
@@ -198,6 +214,8 @@ abstract class CommandServer {
     }
 
     abstract onCreateVault(vaultName: string): Promise<void>;
+    abstract onUseVault(vaultName: string): Promise<void>;
+    abstract onDeleteVault(vaultName: string): Promise<void>;
     abstract onSetVaultEntry(entryKey: string, data: string): Promise<void>;
     abstract onGetVaultEntry(entryKey: string): Promise<void>;
     abstract onListVaults(): Promise<void>;
@@ -233,6 +251,22 @@ class ShellCommandServer extends CommandServer {
         const vaultId: string | null = await this.services.vault.createVault(vaultName);
         vaultId && this.services.vault.subscribeVaultById(vaultId, () =>
             this.services.vault.syncActiveVaults(vaultId, this.services.connection));
+    }
+
+    async onUseVault(vaultName: string): Promise<void> {
+        console.info(`Switching to vault ${vaultName}`);
+
+        if (!this.services.vault.getVaultByName(vaultName)) {
+            return console.error(`Cannot delete vault ${vaultName} (does not exist)`);
+        }
+        this.services.vault.setActiveVaultByName(vaultName);
+    }
+
+    async onDeleteVault(vaultName: string): Promise<void> {
+        if (!this.services.vault.getVaultByName(vaultName)) {
+            return console.error(`Cannot delete vault ${vaultName} (does not exist)`);
+        }
+        await this.services.vault.deleteVaultByName(vaultName);
     }
 
     async onListVaults(): Promise<void> {
