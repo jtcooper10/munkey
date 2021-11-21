@@ -206,6 +206,25 @@ class VaultContainer {
         }
         return vaultList;
     }
+
+    /**
+     * @name syncActiveVaults
+     * @public
+     * @function
+     *
+     * @description Synchronize the contents of the specified vault with all active remote connections.
+     *
+     * @param vaultId {string} UUID of the local vault to replicate from.
+     * @param connections {ConnectionService} Service container to pull replication targets from.
+     * All remote vaults with the same UUID as the provided vaultId will be replicated.
+     */
+    public async syncActiveVaults(vaultId: string, connections: ConnectionService): Promise<void> {
+        const vault: PouchDB.Database<DatabaseDocument> = this.getVaultById(vaultId);
+
+        for (let connection of connections.getActiveConnections(vaultId)) {
+            await vault.sync(connection);
+        }
+    }
 }
 
 /**

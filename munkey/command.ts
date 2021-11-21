@@ -79,7 +79,8 @@ abstract class CommandServer {
                 }
 
                 return this.onVaultLink(hostname, portNum, vaultName);
-            }
+            },
+            "sync": this.onVaultSync.bind(this),
         },
         "link": {
             "up": this.onLinkUp.bind(this),
@@ -201,6 +202,7 @@ abstract class CommandServer {
     abstract onGetVaultEntry(entryKey: string): Promise<void>;
     abstract onListVaults(): Promise<void>;
     abstract onVaultLink(hostname: string, portNum: number, vaultName: string): Promise<void>;
+    abstract onVaultSync(): Promise<void>;
 
     abstract onLinkUp(): Promise<void>;
     abstract onLinkDown(): Promise<void>;
@@ -336,6 +338,11 @@ class ShellCommandServer extends CommandServer {
         else {
             console.error(`Vault unavailable: ${vaultName}@${hostname}:${portNum}`);
         }
+    }
+
+    async onVaultSync(): Promise<void> {
+        const vaultId: string = this.services.vault.getActiveVaultId();
+        await this.services.vault.syncActiveVaults(vaultId, this.services.connection);
     }
 
     async onLinkUp(): Promise<void> {
