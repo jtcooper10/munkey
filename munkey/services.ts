@@ -17,13 +17,22 @@ import PouchDB from "pouchdb";
 import usePouchDB from "express-pouchdb";
 import {randomUUID} from "crypto";
 import http from "http";
+import winston from "winston";
+import memdown from "memdown";
 
-const MemoryDB = PouchDB.defaults({
-    db: require("memdown")
+const MemoryDB = PouchDB.defaults(<PouchDB.Configuration.DatabaseConfiguration> {
+    db: memdown
 });
 
 interface ServerOptions {
     portNum: number;
+    logging?: winston.Logger;
+}
+
+interface DatabaseDocument {
+    _id: string;
+    _rev?: string;
+    entries?: { [entry: string]: string };
 }
 
 /**
@@ -47,6 +56,8 @@ function generateNewIdentity(): Promise<string> {
  * @param {ServiceContainer} services Service container to attach endpoints to.
  * Any updates issued by the web server will be applied to this service container.
  * @param {number} portNum Port number for the web server to listen on.
+ * @param {winston.Logger} logging Logging container used to log HTTP requests by the server.
+ * If not specified, no logging is captured.
  *
  * @returns Promise which resolves to a fully-configured Express.js application object.
  * The resolved application object is the same object as is passed in, but configured.
@@ -54,7 +65,7 @@ function generateNewIdentity(): Promise<string> {
 function configureRoutes(
     app: express.Application,
     services: ServiceContainer,
-    { portNum = 8000 }: ServerOptions = { portNum: 8000 }): Promise<ServiceContainer>
+    { portNum = 8000, logging = null }: ServerOptions = { portNum: 8000 }): Promise<ServiceContainer>
 {
     app.use("/link", express.json());
 
@@ -74,7 +85,7 @@ function configureRoutes(
 
     return new Promise(function(resolve, reject) {
         app.listen(portNum, function() {
-            console.info(`Listening on port ${portNum}`);
+            logging?.info("Listening on port %d", portNum);
             resolve(services);
         });
 
@@ -82,16 +93,33 @@ function configureRoutes(
     });
 }
 
+class Service {
+    protected logger: winston.Logger;
+
+    constructor() {
+        this.logger = winston.child({});
+    }
+
+    public useLogging(logger: winston.Logger) {
+        this.logger = logger;
+    }
+}
+
 /**
  * @name VaultContainer
  * @summary IoC container for the application state of all PouchDB vaults.
  * @class
  */
-class VaultContainer {
-    private readonly vaultMap: Map<string, any>;
+class VaultContainer extends Service {
+    private readonly vaultMap: Map<string, PouchDB.Database<DatabaseDocument>>;
+    private readonly vaultIdMap: Map<string, string>;
+    private activeVault: string | null;
 
     constructor() {
-        this.vaultMap = new Map<string, any>();
+        super();
+        this.vaultMap = new Map<string, PouchDB.Database<DatabaseDocument>>();
+        this.vaultIdMap = new Map<string, string>();
+        this.activeVault = null;
     }
 
     /**
@@ -100,26 +128,63 @@ class VaultContainer {
      * If a vault with that ID doesn't exist yet, it is created.
      * If a vault with that ID already exists, it is returned unmodified.
      * 
-     * @param {string} vaultId Unique ID corresponding to the desired vault.
-     * @returns Potentially new PouchDB instance with the specified name.
+     * @param {string} vaultName Unique "nickname" corresponding to the desired vault.
+     * The vault is issued a new, randomly generated UUID on creation.
+     * @param {string} vaultId Suggested UUID for the new vault.
+     * Recommended only when the vault you are creating already exists.
+     * @returns {string|null} UUID of new (or existing) PouchDB database.
      */
-    public createVault(vaultId: string) {
-        let vault: any = this.vaultMap.get(vaultId);
-        return vault ?? this.vaultMap
-            .set(vaultId, new MemoryDB(vaultId))
-            .get(vaultId);
+    public createVault(vaultName: string, vaultId?: string | null): Promise<string | null>
+    {
+        if (!vaultName) {
+            throw new ReferenceError(`Invalid vault name: ${vaultName}`);
+        }
+
+        vaultId ??= (this.vaultIdMap.get(vaultName) || null);
+        let vault: PouchDB.Database<DatabaseDocument> | null = vaultId && this.vaultMap.get(vaultId) || null;
+
+        if (!vault) {
+            // Vault not found; create it and initialize its schema.
+            this.vaultIdMap.set(vaultName, vaultId ??= randomUUID());
+            this.vaultMap.set(vaultId, vault = new MemoryDB(vaultName));
+            this.activeVault = vaultId;
+            return vault.put({
+                    _id: "dict",
+                    entries: {},
+                })
+                .then(() => vaultId)
+                .catch(err => {
+                    this.logger.error(err);
+                    return null;
+                });
+        }
+
+        return Promise.resolve(vaultId);
     }
 
     /**
-     * @name getVault
+     * @name getVaultByName
      * @description Find the vault with the given ID.
      * If none exists with that ID, returns undefined.
      * 
      * @returns PouchDB instance if one with the provided ID exists.
      * Otherwise, returns undefined.
      */
-    public getVault(vaultId: string) {
-        return this.vaultMap.get(vaultId);
+    public getVaultByName(vaultName: string): PouchDB.Database<DatabaseDocument> | null {
+        let vaultId: string | null = this.vaultIdMap.get(vaultName) || null;
+        return vaultId && this.getVaultById(vaultId);
+    }
+
+    public getVaultById(vaultId: string): PouchDB.Database<DatabaseDocument> | null {
+        return this.vaultMap.get(vaultId) || null;
+    }
+
+    public getActiveVault(): PouchDB.Database<DatabaseDocument> | null {
+        return this.vaultMap.get(this.activeVault) || null;
+    }
+
+    public getActiveVaultId(): string | null {
+        return this.activeVault;
     }
 
     /**
@@ -133,10 +198,10 @@ class VaultContainer {
      * @returns Async iterable which resolves to a unique Peer Vault Declaration record on each iteration.
      */
     public async* getActiveVaults(): AsyncIterable<PeerVaultDecl> {
-        for (let [vaultName] of this.vaultMap) {
+        for (let [vaultName, vaultId] of this.vaultIdMap) {
             yield {
                 nickname: vaultName,
-                vaultId: vaultName,
+                vaultId: vaultId,
             };
         }
     }
@@ -159,6 +224,43 @@ class VaultContainer {
         }
         return vaultList;
     }
+
+    /**
+     * @name syncActiveVaults
+     * @public
+     * @function
+     *
+     * @description Synchronize the contents of the specified vault with all active remote connections.
+     *
+     * @param vaultId {string} UUID of the local vault to replicate from.
+     * @param connections {ConnectionService} Service container to pull replication targets from.
+     * All remote vaults with the same UUID as the provided vaultId will be replicated.
+     *
+     * @returns {number} Number of vaults synchronized.
+     */
+    public async syncActiveVaults(vaultId: string, connections: ConnectionService): Promise<number> {
+        const vault: PouchDB.Database<DatabaseDocument> = this.getVaultById(vaultId);
+
+        let syncCount: number = 0;
+        for (let connection of connections.getActiveConnections(vaultId)) {
+            this.logger.info("Syncing with peer %s", connection.name);
+            await vault.sync(connection);
+            syncCount++;
+        }
+
+        return syncCount;
+    }
+
+    public subscribeVaultById(vaultId: string,
+        callback: (value: PouchDB.Core.ChangesResponseChange<DatabaseDocument>) => void)
+    {
+        const vault: PouchDB.Database<DatabaseDocument> = this.getVaultById(vaultId);
+        if (vault) {
+            this.logger.info("Change subscription created for vault %s", vaultId);
+            vault?.changes({ live: true })
+                .on("change", callback);
+        }
+    }
 }
 
 /**
@@ -170,9 +272,10 @@ class VaultContainer {
  * The identity's key-pair is used to validate the identity for each request.
  * @class
  */
-class IdentityService {
+class IdentityService extends Service {
     private readonly uniqueId: string;
     constructor(uniqueId: string) {
+        super();
         this.uniqueId = uniqueId;
     }
 
@@ -197,11 +300,12 @@ class IdentityService {
  * which manages the lifetime (including, for example, timeouts) of the device.
  * Note that active connections are not handled by this container, only locational entries.
  */
-class ActivityService {
+class ActivityService extends Service {
     private readonly activePeerList: Map<string, PeerIdentityDecl>;
     private readonly discoveryPool: Map<string, DeviceDiscoveryDecl>;
 
     constructor() {
+        super();
         this.activePeerList = new Map<string, PeerIdentityDecl>();
         this.discoveryPool = new Map<string, DeviceDiscoveryDecl>();
     }
@@ -228,6 +332,7 @@ class ActivityService {
         hostname: string,
         portNum: number): Promise<PeerIdentityDecl|null>
     {
+        const logger = this.logger;
         const peerResponse: string|null = await new Promise<string>(function(resolve, reject) {
             http.get({
                     hostname,
@@ -242,7 +347,7 @@ class ActivityService {
                 })
                 .on("error", (err: NodeJS.ErrnoException) => {
                     if (err.code === "ECONNREFUSED") {
-                        console.error("Connection refused");
+                        logger.error("Connection Refused %s:%d", hostname, portNum);
                         resolve(null);
                     }
                     else {
@@ -251,7 +356,7 @@ class ActivityService {
                 });
         })
         .catch(err => {
-            console.error(err);
+            logger.error(err);
             return null;
         });
 
@@ -290,7 +395,7 @@ class ActivityService {
                 return decl as PeerIdentityDecl;
             })
             .catch(err => {
-                console.error(err);
+                this.logger.error(err);
                 return null;
             });
     }
@@ -328,7 +433,7 @@ class ActivityService {
     }
 
     /**
-     * @name getActiveDevices
+     * @name getAllDevices
      * @public
      * @function
      *
@@ -340,7 +445,7 @@ class ActivityService {
      * @returns Iterator over tuple: (hostname, portNum, identityDocument).
      * Each tuple represents a single entry in the APL.
      */
-    public *getActiveDevices(): Generator<[string, number, PeerIdentityDecl]> {
+    public *getAllDevices(): Generator<[string, number, PeerIdentityDecl]> {
         for (let [location, identity] of this.activePeerList) {
             const [hostname, portNum]: string[] = location.split(":", 2);
             yield [hostname, parseInt(portNum), identity];
@@ -348,10 +453,78 @@ class ActivityService {
     }
 }
 
-interface ServiceContainer {
+/**
+ * @name ConnectionService
+ * @class
+ * @summary Service container for peer database connections.
+ * @description Service container for managing peer endpoints for CouchDB connections.
+ * Endpoints listed in the container may or may not be currently active, no guarantees are made about
+ * the endpoint itself (except the fact that it, at one point, contained an active database).
+ *
+ * For the most part, operations are performed in aggregate over all active databases.
+ * In rare cases, you may request and operate on a single endpoint.
+ */
+class ConnectionService extends Service {
+    /**
+     * @name connections
+     * @private
+     *
+     * @summary Map containing active database connection objects.
+     * Map keys are the UUID of the remote vault, values are the connections themselves.
+     */
+    private readonly connections: Map<string, PouchDB.Database<DatabaseDocument>[]>;
+
+    constructor() {
+        super();
+        this.connections = new Map<string, PouchDB.Database<DatabaseDocument>[]>();
+    }
+
+    public publishDatabaseConnection(device: DeviceDiscoveryDecl, vaultName: string, vaultId: string) {
+        let connectionList: PouchDB.Database<DatabaseDocument>[] | null = this.connections.get(vaultId) || null;
+        if (!connectionList) {
+            connectionList = this.connections.set(vaultId, []).get(vaultId);
+        }
+        connectionList.push(new PouchDB(`http://${device.hostname}:${device.portNum}/db/${vaultName}`));
+    }
+
+    /**
+     * @name getAllConnections
+     * @public
+     * @function
+     *
+     * @summary Iterate over (id, database) pairs of active database connections.
+     */
+    public *getAllConnections(): Generator<[string, PouchDB.Database<DatabaseDocument>]> {
+        for (let [connection, databaseList] of this.connections) {
+            for (let database of databaseList) {
+                yield [
+                    connection,
+                    database
+                ];
+            }
+        }
+    }
+
+    public *getActiveConnections(vaultId: string): Generator<PouchDB.Database<DatabaseDocument>> {
+        for (let [connId, connectionList] of this.connections) {
+            if (connId === vaultId) {
+                for (let database of connectionList) {
+                    yield database;
+                }
+            }
+        }
+    }
+}
+
+interface ServiceList {
+    [serviceName: string]: Service;
+}
+
+interface ServiceContainer extends ServiceList {
     vault: VaultContainer;
     identity: IdentityService;
     activity: ActivityService;
+    connection: ConnectionService;
 }
 
 export {
@@ -360,8 +533,14 @@ export {
     VaultContainer,
     IdentityService,
     ActivityService,
+    ConnectionService,
 
     /* Configuration Functions */
     configureRoutes,
     generateNewIdentity,
+
+    /* TS Interfaces */
+    DatabaseDocument,
+    Service,
+    ServiceList,
 };

@@ -7,7 +7,7 @@
 
 import { Readable } from "stream";
 import { PeerIdentityDecl } from "./discovery";
-import { ServiceContainer } from "./services";
+import {DatabaseDocument, ServiceContainer} from "./services";
 
 interface CommandServer {
     onUnknownCommand?(args: string[]): Promise<void>;
@@ -44,7 +44,7 @@ abstract class CommandServer {
                     console.error(`Missing ${entryKey ? "data" : "key name"} for entry creation`);
                     return Promise.resolve();
                 }
-                return this.onAddVaultEntry(entryKey, entryData);
+                return this.onSetVaultEntry(entryKey, entryData);
             },
 
             "get": ([entryKey = null]: string[]): Promise<void> => {
@@ -56,6 +56,31 @@ abstract class CommandServer {
             },
 
             "list": this.onListVaults.bind(this),
+
+            "link": ([linkTarget = null]: string[]): Promise<void> => {
+                if (linkTarget === null) {
+                    console.error("Missing link target for vault link");
+                    return Promise.resolve();
+                }
+
+                const [vaultName, connection]: string[] = linkTarget.split("@");
+                if (vaultName.trim().length === 0) {
+                    console.error("Missing vault name from link target");
+                    return Promise.resolve();
+                }
+
+                let hostname: string, portNum: number;
+                try {
+                    [hostname, portNum] = this.resolveHost(connection);
+                }
+                catch (err) {
+                    console.error("Failed to parse connection string");
+                    return Promise.resolve();
+                }
+
+                return this.onVaultLink(hostname, portNum, vaultName);
+            },
+            "sync": this.onVaultSync.bind(this),
         },
         "link": {
             "up": this.onLinkUp.bind(this),
@@ -75,30 +100,16 @@ abstract class CommandServer {
                     return Promise.resolve();
                 }
 
-                // List of errors is tracked rather than one error.
-                // This is because there is often >1 issue involved with parsing.
-                let errorsFound: string[] = [],
-                    hostname: string,
-                    portNum: string|number;
-                [hostname, portNum] = connection.split(":", 2);
-                portNum = parseInt(portNum) as number;
-
-                if (hostname.length < 1) {
-                    errorsFound.push(`Could not parse hostname from connection string [${connection}]`);
+                let hostname: string, portNum: number;
+                try {
+                    [hostname, portNum] = this.resolveHost(connection);
                 }
-                if (isNaN(portNum)) {
-                    errorsFound.push(`Could not parse port number from connection string [${connection}]`);
-                }
-
-                if (errorsFound.length > 0) {
-                    for (let errString of errorsFound) {
-                        console.error(errString);
-                    }
+                catch (err) {
+                    console.error("Failed to parse host string");
                     return Promise.resolve();
                 }
-                else {
-                    return this.onPeerLink(hostname, portNum);
-                }
+
+                return this.onPeerLink(hostname, portNum);
             },
             "list": this.onPeerList.bind(this),
         }
@@ -160,10 +171,38 @@ abstract class CommandServer {
             : this.onUnknownCommand(args);
     }
 
+    private resolveHost(connection: string): [string, number] | null {
+        // List of errors is tracked rather than one error.
+        // This is because there is often >1 issue involved with parsing.
+        let errorsFound: string[] = [],
+            hostname: string,
+            portNum: string|number;
+        [hostname, portNum] = connection.split(":", 2);
+        portNum = parseInt(portNum) as number;
+
+        if (hostname.length < 1) {
+            errorsFound.push(`Could not parse hostname from connection string [${connection}]`);
+        }
+        if (isNaN(portNum)) {
+            errorsFound.push(`Could not parse port number from connection string [${connection}]`);
+        }
+
+        if (errorsFound.length > 0) {
+            for (let errString of errorsFound) {
+                console.error(errString);
+            }
+            return null;
+        }
+
+        return [hostname, portNum];
+    }
+
     abstract onCreateVault(vaultName: string): Promise<void>;
-    abstract onAddVaultEntry(entryKey: string, data: string): Promise<void>;
+    abstract onSetVaultEntry(entryKey: string, data: string): Promise<void>;
     abstract onGetVaultEntry(entryKey: string): Promise<void>;
     abstract onListVaults(): Promise<void>;
+    abstract onVaultLink(hostname: string, portNum: number, vaultName: string): Promise<void>;
+    abstract onVaultSync(): Promise<void>;
 
     abstract onLinkUp(): Promise<void>;
     abstract onLinkDown(): Promise<void>;
@@ -180,70 +219,79 @@ abstract class CommandServer {
 
 class ShellCommandServer extends CommandServer {
 
-    private currentVault?: string|null;
-    private vault?: any;
-
     constructor(private services: ServiceContainer) {
         super();
-
-        this.currentVault = null;
-        this.vault = null;
     }
 
     async onCreateVault(vaultName: string): Promise<void> {
         console.info(`Creating new vault (${vaultName})`);
 
-        if (this.services.vault.getVault(vaultName)) {
+        if (this.services.vault.getVaultByName(vaultName)) {
             return console.error(`Cannot create vault ${vaultName} (already exists)`);
         }
 
-        this.vault = this.services.vault.createVault(vaultName);
-        await this.vault.put({
-            _id: "dict",
-            entries: {},
-        });
-        this.currentVault = vaultName;
+        const vaultId: string | null = await this.services.vault.createVault(vaultName);
+        vaultId && this.services.vault.subscribeVaultById(vaultId, () =>
+            this.services.vault.syncActiveVaults(vaultId, this.services.connection));
     }
 
     async onListVaults(): Promise<void> {
-        console.info(":: :: Active  Vaults :: ::");
+        const activeVaultId = this.services.vault.getActiveVaultId();
 
+        console.info(":: :: Active  Vaults :: ::");
         for (let vault of await this.services.vault.getActiveVaultList()) {
-            console.info(` ${vault.vaultId === this.currentVault ? " " : "*"} [${vault.vaultId}] ${vault.nickname}`);
+            console.info(
+                ` ${vault.vaultId === activeVaultId ? "*" : " "} \"${vault.nickname}\" = Vault[${vault.vaultId}]`);
+        }
+
+        console.info(":: :: Remote  Vaults :: ::");
+        for (let [name, url] of this.services.connection.getAllConnections()) {
+            console.info(`   ${url.name} = RemoteVault[${name}]`);
         }
     }
 
-    async onAddVaultEntry(entryKey: string, data: string): Promise<void> {
-        if (this.vault === null) {
+    async onSetVaultEntry(entryKey: string, data: string): Promise<void> {
+        const vault = this.services.vault.getActiveVault();
+        const vaultId = this.services.vault.getActiveVaultId();
+        if (vault === null) {
             console.error("No vault selected; please select or create a vault");
             return Promise.resolve();
         }
 
-        console.info(`Adding new vault entry to ${this.currentVault}`);
-        const { _rev, entries } = await this.vault
-            .get("dict")
-            .catch(err => console.error(err));
+        console.info(`Adding new vault entry to ${vaultId}`);
+        const { _rev, entries } = await vault
+            .get<DatabaseDocument>("dict")
+            .catch(err => {
+                console.error(err);
+                return { _rev: null, entries: {} };
+            });
 
-        if (entryKey in entries) {
-            console.error("Entry already exists");
+        if (_rev === null) {
+            // Document fetch failed; do nothing.
             return Promise.resolve();
         }
 
-        await this.vault.put({
+        await vault?.put({
             _id: "dict",
             _rev,
             entries: { ...entries, [entryKey]: data },
         }).catch(err => console.error(err));
+        await this.services.vault.syncActiveVaults(vaultId, this.services.connection);
     }
 
     async onGetVaultEntry(entryKey: string): Promise<void> {
-        if (this.vault === null) {
+        const vault = this.services.vault.getActiveVault();
+        if (vault === null) {
             console.error("No vault selected; please select or create a vault");
             return Promise.resolve();
         }
 
-        const { entries } = await this.vault.get("dict")
-            .catch(err => console.error(err));
+        const { entries } = await vault
+            .get<DatabaseDocument>("dict")
+            .catch(err => {
+                console.error(err);
+                return { entries: {} }
+            });
 
         const data = entries[entryKey];
         if (!data) {
@@ -251,6 +299,48 @@ class ShellCommandServer extends CommandServer {
         }
         else {
             console.info(`[${entryKey}] = ${data}`);
+        }
+    }
+
+    async onVaultLink(hostname: string, portNum: number, vaultName: string): Promise<void> {
+        console.info(`Connecting with vault ${vaultName}@${hostname}:${portNum}`);
+
+        // There are 3 general cases for `vault link`:
+        //  1. The remote database is new, not active nor inactive.
+        //     This creates a new PouchDB database locally, syncs the remote one here.
+        //  2. The remote database is known, and is active.
+        //     It is added to the APL, and we're done.
+        //  3. The remote database is known, but belongs to an inactive database.
+        //     The inactive database is loaded and set as active, then do case 2.
+
+        // All 3 cases require the remote DB to exist in the APL.
+        let activeDevice: PeerIdentityDecl | null = await this.services
+            .activity
+            .publishDevice({ hostname, portNum });
+
+        // Query the APL to find the vault ID with that nickname.
+        let { vaultId = null } = activeDevice?.vaults.find(vault => vault.nickname === vaultName) ?? {};
+        if (vaultId) {
+            this.services.connection.publishDatabaseConnection({ hostname, portNum }, vaultName, vaultId);
+            let localVault: PouchDB.Database<DatabaseDocument> | null = this.services.vault.getVaultById(vaultId);
+            // TODO: use the queried vault information to validate the vault.
+            if (!localVault) {
+                // TODO: allow the user to specify their own local nickname.
+                // Relying on the remote database's vault name is subject to collisions.
+                vaultId = await this.services.vault.createVault(vaultName, vaultId);
+                vaultId && this.services.vault.subscribeVaultById(vaultId, () =>
+                    this.services.vault.syncActiveVaults(vaultId, this.services.connection));
+            }
+        }
+        else {
+            console.error(`Vault unavailable: ${vaultName}@${hostname}:${portNum}`);
+        }
+    }
+
+    async onVaultSync(): Promise<void> {
+        const vaultId: string = this.services.vault.getActiveVaultId();
+        if (await this.services.vault.syncActiveVaults(vaultId, this.services.connection) <= 0) {
+            console.error("No remote vaults found");
         }
     }
 
@@ -280,7 +370,7 @@ class ShellCommandServer extends CommandServer {
     }
 
     async onPeerList(): Promise<void> {
-        for (let [hostname, portNum, identity] of this.services.activity.getActiveDevices()) {
+        for (let [hostname, portNum, identity] of this.services.activity.getAllDevices()) {
             console.info(` Peer[${identity.uniqueId}]@${hostname}:${portNum}`);
             for (let vault of identity.vaults) {
                 console.info(`\t* "${vault.nickname}": Vault[${vault.vaultId}]`);

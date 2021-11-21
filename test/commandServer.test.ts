@@ -17,6 +17,7 @@ describe("Test behavior of shell commands", function() {
             activity: new services.ActivityService(),
             vault: new services.VaultContainer(),
             identity: new services.IdentityService(""),
+            connection: new services.ConnectionService(),
         };
         server = new ShellCommandServer(container);
         sinon.stub(server, "onStartup");
