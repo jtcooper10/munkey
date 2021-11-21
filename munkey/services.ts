@@ -19,6 +19,7 @@ import {randomUUID} from "crypto";
 import http from "http";
 import winston from "winston";
 import memdown from "memdown";
+import ErrnoException = NodeJS.ErrnoException;
 
 const MemoryDB = PouchDB.defaults(<PouchDB.Configuration.DatabaseConfiguration> {
     db: memdown
@@ -63,10 +64,10 @@ function generateNewIdentity(): Promise<string> {
  * The resolved application object is the same object as is passed in, but configured.
  */
 function configureRoutes(
-    app: express.Application,
     services: ServiceContainer,
     { portNum = 8000, logging = null }: ServerOptions = { portNum: 8000 }): Promise<ServiceContainer>
 {
+    const app = services.web.getApplication();
     app.use("/link", express.json());
 
     app.get("/link", async function(
@@ -83,14 +84,8 @@ function configureRoutes(
 
     app.use("/db", usePouchDB(MemoryDB));
 
-    return new Promise(function(resolve, reject) {
-        app.listen(portNum, function() {
-            logging?.info("Listening on port %d", portNum);
-            resolve(services);
-        });
-
-        app.on("error", err => reject(err));
-    });
+    return services.web.listen(portNum)
+        .then(() => services);
 }
 
 class Service {
@@ -100,8 +95,9 @@ class Service {
         this.logger = winston.child({});
     }
 
-    public useLogging(logger: winston.Logger) {
+    public useLogging(logger: winston.Logger): this {
         this.logger = logger;
+        return this;
     }
 }
 
@@ -557,6 +553,49 @@ class ConnectionService extends Service {
     }
 }
 
+class WebService extends Service {
+    private server: http.Server;
+    private defaultPort: number;
+
+    constructor(private app: express.Application) {
+        super();
+        this.server = null;
+        this.defaultPort = 8000;
+    }
+
+    public getApplication(): express.Application {
+        return this.app;
+    }
+
+    public listen(portNum: number = this.defaultPort): Promise<http.Server> {
+        return new Promise<http.Server>((resolve, reject) => {
+                const server: http.Server = this.getApplication().listen(this.defaultPort = portNum, () => {
+                        this.logger.info("Listening on port %d", portNum);
+                        resolve(server);
+                    })
+                    .on("error", (err: ErrnoException) => {
+                        if (err.code === "EADDRINUSE") {
+                            this.logger.warn(`Port ${portNum} not available`);
+                        }
+                        reject(err);
+                    });
+            })
+            .then(server => this.server = server);
+    }
+
+    public close(): Promise<void> {
+        return new Promise(function(resolve, reject) {
+                this.server = this.server?.close(err => {
+                    if (err) reject(err);
+                    else {
+                        this.logger.info("Server closed");
+                        resolve();
+                    }
+                });
+            }.bind(this));
+    }
+}
+
 interface ServiceList {
     [serviceName: string]: Service;
 }
@@ -566,6 +605,7 @@ interface ServiceContainer extends ServiceList {
     identity: IdentityService;
     activity: ActivityService;
     connection: ConnectionService;
+    web: WebService;
 }
 
 export {
@@ -575,6 +615,7 @@ export {
     IdentityService,
     ActivityService,
     ConnectionService,
+    WebService,
 
     /* Configuration Functions */
     configureRoutes,

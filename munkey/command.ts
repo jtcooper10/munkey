@@ -379,11 +379,13 @@ class ShellCommandServer extends CommandServer {
     }
 
     async onLinkUp(): Promise<void> {
-        console.info("Unimplemented command: link up");
+        await this.services.web.listen()
+            .catch(() => console.error("Failed to open server"));
     }
 
     async onLinkDown(): Promise<void> {
-        console.info("Unimplemented command: link down");
+        await this.services.web.close()
+            .catch(() => console.error("Failed to close server"));
     }
 
     async onPeerSync(peerId: string): Promise<void> {

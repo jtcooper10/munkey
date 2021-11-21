@@ -27,12 +27,13 @@ import winston from "winston";
 import { CommandServer, ShellCommandServer } from "./command";
 import {
     ServiceContainer,
-    VaultService,
     generateNewIdentity,
     configureRoutes,
+    VaultService,
     IdentityService,
     ActivityService,
     ConnectionService,
+    WebService,
 } from "./services";
 
 const uniformPrint = winston.format.printf(function(
@@ -74,16 +75,17 @@ async function main(services: ServiceContainer): Promise<void> {
 }
 
 generateNewIdentity()
-    .then(id => configureRoutes(express(), {
+    .then(id => configureLogging({
         vault: new VaultService(),
         identity: new IdentityService(id),
         activity: new ActivityService(),
         connection: new ConnectionService(),
-    }, {
+        web: new WebService(express()),
+    }))
+    .then(services => configureRoutes(services, {
         portNum: process.argv.length > 2 ? parseInt(process.argv[2]) : 8000,
         logging: addUniformLogger("http"),
     }))
-    .then(services => configureLogging(services))
     .then(services => main(services))
     .catch(err => {
         console.error(err);
