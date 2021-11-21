@@ -44,7 +44,7 @@ abstract class CommandServer {
                     console.error(`Missing ${entryKey ? "data" : "key name"} for entry creation`);
                     return Promise.resolve();
                 }
-                return this.onAddVaultEntry(entryKey, entryData);
+                return this.onSetVaultEntry(entryKey, entryData);
             },
 
             "get": ([entryKey = null]: string[]): Promise<void> => {
@@ -198,7 +198,7 @@ abstract class CommandServer {
     }
 
     abstract onCreateVault(vaultName: string): Promise<void>;
-    abstract onAddVaultEntry(entryKey: string, data: string): Promise<void>;
+    abstract onSetVaultEntry(entryKey: string, data: string): Promise<void>;
     abstract onGetVaultEntry(entryKey: string): Promise<void>;
     abstract onListVaults(): Promise<void>;
     abstract onVaultLink(hostname: string, portNum: number, vaultName: string): Promise<void>;
@@ -230,7 +230,9 @@ class ShellCommandServer extends CommandServer {
             return console.error(`Cannot create vault ${vaultName} (already exists)`);
         }
 
-        await this.services.vault.createVault(vaultName);
+        const vaultId: string | null = await this.services.vault.createVault(vaultName);
+        vaultId && this.services.vault.subscribeVaultById(vaultId, () =>
+            this.services.vault.syncActiveVaults(vaultId, this.services.connection));
     }
 
     async onListVaults(): Promise<void> {
@@ -248,7 +250,7 @@ class ShellCommandServer extends CommandServer {
         }
     }
 
-    async onAddVaultEntry(entryKey: string, data: string): Promise<void> {
+    async onSetVaultEntry(entryKey: string, data: string): Promise<void> {
         const vault = this.services.vault.getActiveVault();
         const vaultId = this.services.vault.getActiveVaultId();
         if (vault === null) {
@@ -269,16 +271,12 @@ class ShellCommandServer extends CommandServer {
             return Promise.resolve();
         }
 
-        if (entryKey in entries) {
-            console.error("Entry already exists");
-            return Promise.resolve();
-        }
-
         await vault?.put({
             _id: "dict",
             _rev,
             entries: { ...entries, [entryKey]: data },
         }).catch(err => console.error(err));
+        await this.services.vault.syncActiveVaults(vaultId, this.services.connection);
     }
 
     async onGetVaultEntry(entryKey: string): Promise<void> {
@@ -326,13 +324,12 @@ class ShellCommandServer extends CommandServer {
             this.services.connection.publishDatabaseConnection({ hostname, portNum }, vaultName, vaultId);
             let localVault: PouchDB.Database<DatabaseDocument> | null = this.services.vault.getVaultById(vaultId);
             // TODO: use the queried vault information to validate the vault.
-            if (localVault) {
-                console.error("Attempted to link remote vault to existing local vault; not implemented yet");
-            }
-            else {
+            if (!localVault) {
                 // TODO: allow the user to specify their own local nickname.
                 // Relying on the remote database's vault name is subject to collisions.
-                await this.services.vault.createVault(vaultName, vaultId);
+                vaultId = await this.services.vault.createVault(vaultName, vaultId);
+                vaultId && this.services.vault.subscribeVaultById(vaultId, () =>
+                    this.services.vault.syncActiveVaults(vaultId, this.services.connection));
             }
         }
         else {
@@ -342,7 +339,9 @@ class ShellCommandServer extends CommandServer {
 
     async onVaultSync(): Promise<void> {
         const vaultId: string = this.services.vault.getActiveVaultId();
-        await this.services.vault.syncActiveVaults(vaultId, this.services.connection);
+        if (await this.services.vault.syncActiveVaults(vaultId, this.services.connection) <= 0) {
+            console.error("No remote vaults found");
+        }
     }
 
     async onLinkUp(): Promise<void> {

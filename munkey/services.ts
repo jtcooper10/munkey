@@ -134,7 +134,8 @@ class VaultContainer extends Service {
      * Recommended only when the vault you are creating already exists.
      * @returns {string|null} UUID of new (or existing) PouchDB database.
      */
-    public createVault(vaultName: string, vaultId?: string | null): Promise<string | null> {
+    public createVault(vaultName: string, vaultId?: string | null): Promise<string | null>
+    {
         if (!vaultName) {
             throw new ReferenceError(`Invalid vault name: ${vaultName}`);
         }
@@ -151,7 +152,7 @@ class VaultContainer extends Service {
                     _id: "dict",
                     entries: {},
                 })
-                .then(() => vault)
+                .then(() => vaultId)
                 .catch(err => {
                     this.logger.error(err);
                     return null;
@@ -234,13 +235,30 @@ class VaultContainer extends Service {
      * @param vaultId {string} UUID of the local vault to replicate from.
      * @param connections {ConnectionService} Service container to pull replication targets from.
      * All remote vaults with the same UUID as the provided vaultId will be replicated.
+     *
+     * @returns {number} Number of vaults synchronized.
      */
-    public async syncActiveVaults(vaultId: string, connections: ConnectionService): Promise<void> {
+    public async syncActiveVaults(vaultId: string, connections: ConnectionService): Promise<number> {
         const vault: PouchDB.Database<DatabaseDocument> = this.getVaultById(vaultId);
 
+        let syncCount: number = 0;
         for (let connection of connections.getActiveConnections(vaultId)) {
             this.logger.info("Syncing with peer %s", connection.name);
             await vault.sync(connection);
+            syncCount++;
+        }
+
+        return syncCount;
+    }
+
+    public subscribeVaultById(vaultId: string,
+        callback: (value: PouchDB.Core.ChangesResponseChange<DatabaseDocument>) => void)
+    {
+        const vault: PouchDB.Database<DatabaseDocument> = this.getVaultById(vaultId);
+        if (vault) {
+            this.logger.info("Change subscription created for vault %s", vaultId);
+            vault?.changes({ live: true })
+                .on("change", callback);
         }
     }
 }
@@ -454,18 +472,23 @@ class ConnectionService extends Service {
      * @summary Map containing active database connection objects.
      * Map keys are the UUID of the remote vault, values are the connections themselves.
      */
-    private readonly connections: Map<string, PouchDB.Database<DatabaseDocument>>;
+    private readonly connections: Map<string, PouchDB.Database<DatabaseDocument>[]>;
 
     constructor() {
         super();
-        this.connections = new Map<string, PouchDB.Database<DatabaseDocument>>();
+        this.connections = new Map<string, PouchDB.Database<DatabaseDocument>[]>();
     }
 
     public publishDatabaseConnection(device: DeviceDiscoveryDecl, vaultName: string, vaultId: string) {
-        this.connections.set(
-            vaultId,
-            new PouchDB(`http://${device.hostname}:${device.portNum}/db/${vaultName}`),
-        );
+        // this.connections.set(
+        //     vaultId,
+        //     new PouchDB(`http://${device.hostname}:${device.portNum}/db/${vaultName}`),
+        // );
+        let connectionList: PouchDB.Database<DatabaseDocument>[] | null = this.connections.get(vaultId) || null;
+        if (!connectionList) {
+            connectionList = this.connections.set(vaultId, []).get(vaultId);
+        }
+        connectionList.push(new PouchDB(`http://${device.hostname}:${device.portNum}/db/${vaultName}`));
     }
 
     /**
@@ -476,32 +499,24 @@ class ConnectionService extends Service {
      * @summary Iterate over (id, database) pairs of active database connections.
      */
     public *getAllConnections(): Generator<[string, PouchDB.Database<DatabaseDocument>]> {
-        for (let [connection, database] of this.connections) {
-            yield [
-                connection,
-                database
-            ];
+        for (let [connection, databaseList] of this.connections) {
+            for (let database of databaseList) {
+                yield [
+                    connection,
+                    database
+                ];
+            }
         }
     }
 
     public *getActiveConnections(vaultId: string): Generator<PouchDB.Database<DatabaseDocument>> {
-        for (let [connId, connection] of this.connections) {
+        for (let [connId, connectionList] of this.connections) {
             if (connId === vaultId) {
-                yield connection;
+                for (let database of connectionList) {
+                    yield database;
+                }
             }
         }
-    }
-
-    public applyAll(applicationCallback: (db: PouchDB.Database) => boolean) {
-        const removals: string[] = [];
-
-        for (let [location, database] of this.connections) {
-            if (!applicationCallback(database)) {
-                removals.push(location);
-            }
-        }
-
-        removals.forEach(removalKey => this.connections.delete(removalKey));
     }
 }
 
