@@ -255,8 +255,13 @@ class ShellCommandServer extends CommandServer {
             return console.error(`Cannot create vault ${vaultName} (already exists)`);
         }
 
-        const vaultId: string | null = await this.services.vault.createVault(vaultName);
-        console.info(`Vault created with ID ${vaultId}`);
+        try {
+            const vaultId: string | null = await this.services.vault.createVault(vaultName);
+            console.info(`Vault created with ID ${vaultId}`);
+        }
+        catch (err) {
+            console.error(err);
+        }
     }
 
     async onUseVault(vaultName: string): Promise<void> {
@@ -363,11 +368,16 @@ class ShellCommandServer extends CommandServer {
         // Query the APL to find the vault ID with that nickname.
         let { vaultId = null } = activeDevice?.vaults.find(vault => vault.nickname === vaultName) ?? {};
         if (vaultId) {
-            vaultId = await this.services.vault.createVault(vaultNickname, vaultId);
-            let localVault = this.services.vault.getVaultById(vaultId);
-            let remoteConn = this.services.connection
-                .publishDatabaseConnection({ hostname, portNum }, vaultName, vaultId, localVault);
-            remoteConn.catch(err => console.error(err));
+            try {
+                vaultId = await this.services.vault.createVault(vaultNickname, vaultId);
+                let localVault = this.services.vault.getVaultById(vaultId);
+                let remoteConn = this.services.connection
+                    .publishDatabaseConnection({ hostname, portNum }, vaultName, vaultId, localVault);
+                remoteConn.catch(err => console.error(err));
+            }
+            catch (err) {
+                console.error("Failed to create local vault: ", err.message);
+            }
         }
         else {
             console.error(`Vault unavailable: ${vaultName}@${hostname}:${portNum}`);

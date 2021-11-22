@@ -142,7 +142,10 @@ class VaultService extends Service {
         vaultId ??= (this.vaultIdMap.get(vaultName) || null);
         let vault: PouchDB.Database<DatabaseDocument> | null = vaultId && this.vaultMap.get(vaultId) || null;
 
-        if (!vault) {
+        if (this.vaultIdMap.get(vaultName) && this.vaultIdMap.get(vaultName) !== vaultId) {
+            throw new Error(`Name conflict; local nickname ${vaultName} already exists`);
+        }
+        else if (!vault) {
             // Vault not found; create it and initialize its schema.
             this.vaultIdMap.set(vaultName, vaultId ??= randomUUID());
             this.vaultMap.set(vaultId, vault = new MemoryDB(vaultName));
@@ -497,13 +500,17 @@ class ConnectionService extends Service {
 
             localVault.replicate.from(connectionUrl);
             let connection = localVault.sync<DatabaseDocument>(connectionUrl, { live: true, });
-            connection.on("change", info => this.logger.info("Changes received", info))
-                .catch(err => this.logger.error("Change Error", err));
-            connection.on("error", err => this.logger.error("Error in Sync", err))
-                .catch(err => this.logger.error("Error^2", err));
-            connection.on("paused", err => this.logger.error("Sync Paused", err))
-                .catch(err => this.logger.error("Pause Error", err));
-            connection.on("complete", err => this.logger.error("Sync Finished", err));
+            connection
+                .on("change", info => this.logger.info("Changes received", info))
+                .on("error", err => {
+                    this.logger.error("Error in Sync", err);
+                    this.removeRemoteConnection(vaultId, device);
+                })
+                .on("paused", err => this.logger.error("Sync Paused", err))
+                .on("complete", err => this.logger.error("Sync Finished", err))
+                .catch(err => {
+                    this.logger.error("Rejected Promise in Sync", err);
+                });
 
             return connectionMap.set(connectionKey, connection).get(connectionKey);
         }
@@ -518,7 +525,9 @@ class ConnectionService extends Service {
         let connectionKey = `${device.hostname}:${device.portNum}`;
 
         if (connectionMap) {
-            return connectionMap.delete(connectionKey);
+            connectionMap.get(connectionKey).cancel();
+            return connectionMap
+                .delete(connectionKey);
         }
         return false;
     }
