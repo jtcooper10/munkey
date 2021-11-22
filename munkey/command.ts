@@ -105,7 +105,6 @@ abstract class CommandServer {
 
                 return this.onVaultLink(hostname, portNum, vaultName);
             },
-            "sync": this.onVaultSync.bind(this),
         },
         "link": {
             "up": this.onLinkUp.bind(this),
@@ -229,7 +228,6 @@ abstract class CommandServer {
     abstract onGetVaultEntry(entryKey: string): Promise<void>;
     abstract onListVaults(): Promise<void>;
     abstract onVaultLink(hostname: string, portNum: number, vaultName: string, vaultNickname?: string): Promise<void>;
-    abstract onVaultSync(): Promise<void>;
 
     abstract onLinkUp(): Promise<void>;
     abstract onLinkDown(): Promise<void>;
@@ -258,8 +256,7 @@ class ShellCommandServer extends CommandServer {
         }
 
         const vaultId: string | null = await this.services.vault.createVault(vaultName);
-        vaultId && this.services.vault.subscribeVaultById(vaultId, () =>
-            this.services.vault.syncActiveVaults(vaultId, this.services.connection));
+        console.info(`Vault created with ID ${vaultId}`);
     }
 
     async onUseVault(vaultName: string): Promise<void> {
@@ -289,7 +286,7 @@ class ShellCommandServer extends CommandServer {
 
         console.info(":: :: Remote  Vaults :: ::");
         for (let [name, url] of this.services.connection.getAllConnections()) {
-            console.info(`   ${url.name} = RemoteVault[${name}]`);
+            console.info(`   ${url} = RemoteVault[${name}]`);
         }
     }
 
@@ -319,7 +316,6 @@ class ShellCommandServer extends CommandServer {
             _rev,
             entries: { ...entries, [entryKey]: data },
         }).catch(err => console.error(err));
-        await this.services.vault.syncActiveVaults(vaultId, this.services.connection);
     }
 
     async onGetVaultEntry(entryKey: string): Promise<void> {
@@ -367,26 +363,14 @@ class ShellCommandServer extends CommandServer {
         // Query the APL to find the vault ID with that nickname.
         let { vaultId = null } = activeDevice?.vaults.find(vault => vault.nickname === vaultName) ?? {};
         if (vaultId) {
-            this.services.connection.publishDatabaseConnection({ hostname, portNum }, vaultName, vaultId);
-            let localVault: PouchDB.Database<DatabaseDocument> | null = this.services.vault.getVaultById(vaultId);
-            // TODO: use the queried vault information to validate the vault.
-            if (!localVault) {
-                // TODO: allow the user to specify their own local nickname.
-                // Relying on the remote database's vault name is subject to collisions.
-                vaultId = await this.services.vault.createVault(vaultNickname, vaultId);
-                vaultId && this.services.vault.subscribeVaultById(vaultId, () =>
-                    this.services.vault.syncActiveVaults(vaultId, this.services.connection));
-            }
+            vaultId = await this.services.vault.createVault(vaultNickname, vaultId);
+            let localVault = this.services.vault.getVaultById(vaultId);
+            let remoteConn = this.services.connection
+                .publishDatabaseConnection({ hostname, portNum }, vaultName, vaultId, localVault);
+            remoteConn.catch(err => console.error(err));
         }
         else {
             console.error(`Vault unavailable: ${vaultName}@${hostname}:${portNum}`);
-        }
-    }
-
-    async onVaultSync(): Promise<void> {
-        const vaultId: string = this.services.vault.getActiveVaultId();
-        if (await this.services.vault.syncActiveVaults(vaultId, this.services.connection) <= 0) {
-            console.error("No remote vaults found");
         }
     }
 
