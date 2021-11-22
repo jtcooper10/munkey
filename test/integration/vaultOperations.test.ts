@@ -6,10 +6,10 @@ import * as sinon from "sinon";
 
 describe("Local Vault Operations", function() {
 
-    let service: services.VaultContainer;
+    let service: services.VaultService;
 
     beforeEach(function() {
-        service = new services.VaultContainer();
+        service = new services.VaultService();
     });
 
     it("should create a new vault the first time", async function() {
@@ -72,11 +72,11 @@ describe("Local Vault Operations", function() {
 
 describe("Interactions With Connection Service", function() {
 
-    let vaultService: services.VaultContainer;
+    let vaultService: services.VaultService;
     let connectionService: services.ConnectionService;
 
     beforeEach(function() {
-        vaultService = new services.VaultContainer();
+        vaultService = new services.VaultService();
         connectionService = new services.ConnectionService();
     });
 

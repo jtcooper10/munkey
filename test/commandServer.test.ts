@@ -15,7 +15,7 @@ describe("Test behavior of shell commands", function() {
     before(() => {
         container = {
             activity: new services.ActivityService(),
-            vault: new services.VaultContainer(),
+            vault: new services.VaultService(),
             identity: new services.IdentityService(""),
             connection: new services.ConnectionService(),
         };

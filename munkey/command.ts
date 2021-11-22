@@ -39,6 +39,22 @@ abstract class CommandServer {
                 return this.onCreateVault(vaultName);
             },
 
+            "delete": ([vaultName = null]: string[] = []): Promise<void> => {
+                if (vaultName === null) {
+                    console.error("Missing name for vault deletion");
+                    return Promise.resolve();
+                }
+                return this.onDeleteVault(vaultName);
+            },
+
+            "use": ([vaultName = null]: string[] = []): Promise<void> => {
+                if (vaultName === null) {
+                    console.error("Missing name for vault switch");
+                    return Promise.resolve();
+                }
+                return this.onUseVault(vaultName);
+            },
+
             "set": ([entryKey = null, entryData = null]: string[] = []): Promise<void> => {
                 if (entryKey === null || entryData === null) {
                     console.error(`Missing ${entryKey ? "data" : "key name"} for entry creation`);
@@ -57,7 +73,7 @@ abstract class CommandServer {
 
             "list": this.onListVaults.bind(this),
 
-            "link": ([linkTarget = null]: string[]): Promise<void> => {
+            "link": ([linkTarget = null, ...rest]: string[]): Promise<void> => {
                 if (linkTarget === null) {
                     console.error("Missing link target for vault link");
                     return Promise.resolve();
@@ -76,6 +92,15 @@ abstract class CommandServer {
                 catch (err) {
                     console.error("Failed to parse connection string");
                     return Promise.resolve();
+                }
+
+                const [subCommand = null, subArg = null]: (string | null)[] = rest;
+                if (subCommand?.toLowerCase() === "as") {
+                    if (subArg === null) {
+                        console.error("Missing local nickname for vault link");
+                        return Promise.resolve();
+                    }
+                    return this.onVaultLink(hostname, portNum, vaultName, subArg);
                 }
 
                 return this.onVaultLink(hostname, portNum, vaultName);
@@ -198,10 +223,12 @@ abstract class CommandServer {
     }
 
     abstract onCreateVault(vaultName: string): Promise<void>;
+    abstract onUseVault(vaultName: string): Promise<void>;
+    abstract onDeleteVault(vaultName: string): Promise<void>;
     abstract onSetVaultEntry(entryKey: string, data: string): Promise<void>;
     abstract onGetVaultEntry(entryKey: string): Promise<void>;
     abstract onListVaults(): Promise<void>;
-    abstract onVaultLink(hostname: string, portNum: number, vaultName: string): Promise<void>;
+    abstract onVaultLink(hostname: string, portNum: number, vaultName: string, vaultNickname?: string): Promise<void>;
     abstract onVaultSync(): Promise<void>;
 
     abstract onLinkUp(): Promise<void>;
@@ -233,6 +260,22 @@ class ShellCommandServer extends CommandServer {
         const vaultId: string | null = await this.services.vault.createVault(vaultName);
         vaultId && this.services.vault.subscribeVaultById(vaultId, () =>
             this.services.vault.syncActiveVaults(vaultId, this.services.connection));
+    }
+
+    async onUseVault(vaultName: string): Promise<void> {
+        console.info(`Switching to vault ${vaultName}`);
+
+        if (!this.services.vault.getVaultByName(vaultName)) {
+            return console.error(`Cannot delete vault ${vaultName} (does not exist)`);
+        }
+        this.services.vault.setActiveVaultByName(vaultName);
+    }
+
+    async onDeleteVault(vaultName: string): Promise<void> {
+        if (!this.services.vault.getVaultByName(vaultName)) {
+            return console.error(`Cannot delete vault ${vaultName} (does not exist)`);
+        }
+        await this.services.vault.deleteVaultByName(vaultName);
     }
 
     async onListVaults(): Promise<void> {
@@ -302,7 +345,10 @@ class ShellCommandServer extends CommandServer {
         }
     }
 
-    async onVaultLink(hostname: string, portNum: number, vaultName: string): Promise<void> {
+    async onVaultLink(
+        hostname: string, portNum: number,
+        vaultName: string, vaultNickname: string = vaultName): Promise<void>
+    {
         console.info(`Connecting with vault ${vaultName}@${hostname}:${portNum}`);
 
         // There are 3 general cases for `vault link`:
@@ -327,7 +373,7 @@ class ShellCommandServer extends CommandServer {
             if (!localVault) {
                 // TODO: allow the user to specify their own local nickname.
                 // Relying on the remote database's vault name is subject to collisions.
-                vaultId = await this.services.vault.createVault(vaultName, vaultId);
+                vaultId = await this.services.vault.createVault(vaultNickname, vaultId);
                 vaultId && this.services.vault.subscribeVaultById(vaultId, () =>
                     this.services.vault.syncActiveVaults(vaultId, this.services.connection));
             }
@@ -345,11 +391,13 @@ class ShellCommandServer extends CommandServer {
     }
 
     async onLinkUp(): Promise<void> {
-        console.info("Unimplemented command: link up");
+        await this.services.web.listen()
+            .catch(() => console.error("Failed to open server"));
     }
 
     async onLinkDown(): Promise<void> {
-        console.info("Unimplemented command: link down");
+        await this.services.web.close()
+            .catch(() => console.error("Failed to close server"));
     }
 
     async onPeerSync(peerId: string): Promise<void> {
