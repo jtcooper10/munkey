@@ -22,6 +22,10 @@ interface DeviceDiscoveryDecl {
     portNum: number;
 }
 
+interface PeerLinkResponse extends PeerIdentityDecl {
+    activePeerList: DeviceDiscoveryDecl[];
+}
+
 function isPeerIdentityDecl(decl: Object): decl is PeerIdentityDecl {
     return decl &&
         ("uniqueId" in decl) &&
@@ -33,11 +37,27 @@ function isPeerIdentityDecl(decl: Object): decl is PeerIdentityDecl {
         ));
 }
 
+function isDeviceDiscoveryDecl(decl: Object): decl is DeviceDiscoveryDecl {
+    return decl &&
+        ("hostname" in decl) &&
+        ("portNum" in decl);
+}
+
+function isPeerLinkResponse(decl: Object): decl is PeerLinkResponse {
+    return isPeerIdentityDecl(decl) &&
+        ("activePeerList" in decl) &&
+        (Array.isArray((decl as PeerLinkResponse).activePeerList)) &&
+        ((decl as PeerLinkResponse).activePeerList.every(peer => isDeviceDiscoveryDecl(peer)));
+}
+
 export {
     PeerVaultDecl,
     PeerIdentityDecl,
     DeviceDiscoveryDecl,
+    PeerLinkResponse,
 
     /* Validation Functions */
     isPeerIdentityDecl,
+    isDeviceDiscoveryDecl,
+    isPeerLinkResponse,
 };

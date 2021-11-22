@@ -7,8 +7,8 @@
 
 import {
     DeviceDiscoveryDecl,
-    isPeerIdentityDecl,
-    PeerIdentityDecl,
+    isPeerLinkResponse,
+    PeerIdentityDecl, PeerLinkResponse,
     PeerVaultDecl,
 } from "./discovery";
 
@@ -35,6 +35,9 @@ interface DatabaseDocument {
     _rev?: string;
     entries?: { [entry: string]: string };
 }
+
+type VaultDB = PouchDB.Database<DatabaseDocument>;
+type VaultSyncToken = PouchDB.Replication.Sync<DatabaseDocument>;
 
 /**
  * @name generateNewIdentity
@@ -74,9 +77,10 @@ function configureRoutes(
         request,
         response: express.Response<PeerIdentityDecl>)
     {
-        const identityResponse: PeerIdentityDecl = {
+        const identityResponse: PeerIdentityDecl & { activePeerList: DeviceDiscoveryDecl[] } = {
             uniqueId: services.identity.getId(),
             vaults: await services.vault.getActiveVaultList(),
+            activePeerList: services.activity.getDeviceList(),
         };
 
         response.json(identityResponse).end();
@@ -139,7 +143,10 @@ class VaultService extends Service {
         vaultId ??= (this.vaultIdMap.get(vaultName) || null);
         let vault: PouchDB.Database<DatabaseDocument> | null = vaultId && this.vaultMap.get(vaultId) || null;
 
-        if (!vault) {
+        if (this.vaultIdMap.get(vaultName) && this.vaultIdMap.get(vaultName) !== vaultId) {
+            throw new Error(`Name conflict; local nickname ${vaultName} already exists`);
+        }
+        else if (!vault) {
             // Vault not found; create it and initialize its schema.
             this.vaultIdMap.set(vaultName, vaultId ??= randomUUID());
             this.vaultMap.set(vaultId, vault = new MemoryDB(vaultName));
@@ -261,43 +268,6 @@ class VaultService extends Service {
         }
         return vaultList;
     }
-
-    /**
-     * @name syncActiveVaults
-     * @public
-     * @function
-     *
-     * @description Synchronize the contents of the specified vault with all active remote connections.
-     *
-     * @param vaultId {string} UUID of the local vault to replicate from.
-     * @param connections {ConnectionService} Service container to pull replication targets from.
-     * All remote vaults with the same UUID as the provided vaultId will be replicated.
-     *
-     * @returns {number} Number of vaults synchronized.
-     */
-    public async syncActiveVaults(vaultId: string, connections: ConnectionService): Promise<number> {
-        const vault: PouchDB.Database<DatabaseDocument> = this.getVaultById(vaultId);
-
-        let syncCount: number = 0;
-        for (let connection of connections.getActiveConnections(vaultId)) {
-            this.logger.info("Syncing with peer %s", connection.name);
-            await vault.sync(connection);
-            syncCount++;
-        }
-
-        return syncCount;
-    }
-
-    public subscribeVaultById(vaultId: string,
-        callback: (value: PouchDB.Core.ChangesResponseChange<DatabaseDocument>) => void)
-    {
-        const vault: PouchDB.Database<DatabaseDocument> = this.getVaultById(vaultId);
-        if (vault) {
-            this.logger.info("Change subscription created for vault %s", vaultId);
-            vault?.changes({ live: true })
-                .on("change", callback);
-        }
-    }
 }
 
 /**
@@ -338,13 +308,16 @@ class IdentityService extends Service {
  * Note that active connections are not handled by this container, only locational entries.
  */
 class ActivityService extends Service {
+    public static readonly peerListId = "apl";
     private readonly activePeerList: Map<string, PeerIdentityDecl>;
     private readonly discoveryPool: Map<string, DeviceDiscoveryDecl>;
+    private readonly _activePeerList: PouchDB.Database<PeerLinkResponse>;
 
     constructor() {
         super();
         this.activePeerList = new Map<string, PeerIdentityDecl>();
         this.discoveryPool = new Map<string, DeviceDiscoveryDecl>();
+        this._activePeerList = new MemoryDB<PeerLinkResponse>(ActivityService.peerListId);
     }
 
     /**
@@ -367,7 +340,7 @@ class ActivityService extends Service {
      */
     private async sendLinkRequest(
         hostname: string,
-        portNum: number): Promise<PeerIdentityDecl|null>
+        portNum: number): Promise<PeerLinkResponse|null>
     {
         const logger = this.logger;
         const peerResponse: string|null = await new Promise<string>(function(resolve, reject) {
@@ -385,20 +358,13 @@ class ActivityService extends Service {
                 .on("error", (err: NodeJS.ErrnoException) => {
                     if (err.code === "ECONNREFUSED") {
                         logger.error("Connection Refused %s:%d", hostname, portNum);
-                        resolve(null);
                     }
-                    else {
-                        reject(err);
-                    }
+                    reject(err);
                 });
-        })
-        .catch(err => {
-            logger.error(err);
-            return null;
         });
 
         const parsedResponse = peerResponse && JSON.parse(peerResponse);
-        return isPeerIdentityDecl(parsedResponse) ? parsedResponse : null;
+        return isPeerLinkResponse(parsedResponse) ? parsedResponse : null;
     }
 
     /**
@@ -421,17 +387,36 @@ class ActivityService extends Service {
      * It is discouraged to "block" execution (i.e. `await`) based on the result.
      *
      * @param device {DeviceDiscoveryDecl} Device discovery record to publish to the APL.
+     * @param {Set<string>} deviceMask Optional set of already-discovered devices.
+     * Used to limit the depth of recursively-published devices and prevent infinite loops.
+     * Any hosts listed in the given set are skipped during the recursive publish search.
      * @returns {Promise<PeerIdentityDecl | null>} Promise which resolves to an APL entry,
      * or null if the device endpoint is deemed invalid.
      */
-    public publishDevice(device: DeviceDiscoveryDecl): Promise<PeerIdentityDecl|null>
+    public publishDevice(device: DeviceDiscoveryDecl, deviceMask?: Set<string>): Promise<PeerIdentityDecl|null>
     {
+        deviceMask ??= new Set();
+
+        this.logger.info("Attempting to publish peer device %s:%d", device.hostname, device.portNum);
         return this.sendLinkRequest(device.hostname, device.portNum)
-            .then(decl => {
+            .then(async decl => {
+                this.logger.info("Published peer device %s:%d", device.hostname, device.portNum);
                 this.activePeerList.set(`${device.hostname}:${device.portNum}`, decl);
+                let { activePeerList = [] } = decl ?? {};
+                activePeerList = activePeerList.filter(
+                    ({ hostname, portNum }) => !deviceMask.has(`${hostname}:${portNum}`)
+                );
+                activePeerList.forEach(({ hostname, portNum }) => deviceMask.add(`${hostname}:${portNum}`));
+
+                for (let peerDevice of activePeerList) {
+                    this.logger.info("Discovered peer device %s:%d", peerDevice.hostname, peerDevice.portNum);
+                    await this.publishDevice(peerDevice, deviceMask);
+                }
+
                 return decl as PeerIdentityDecl;
             })
             .catch(err => {
+                this.activePeerList.delete(`${device.hostname}:${device.portNum}`);
                 this.logger.error(err);
                 return null;
             });
@@ -482,11 +467,17 @@ class ActivityService extends Service {
      * @returns Iterator over tuple: (hostname, portNum, identityDocument).
      * Each tuple represents a single entry in the APL.
      */
-    public *getAllDevices(): Generator<[string, number, PeerIdentityDecl]> {
+    public *getAllDevices(): Generator<[DeviceDiscoveryDecl, PeerIdentityDecl]> {
         for (let [location, identity] of this.activePeerList) {
             const [hostname, portNum]: string[] = location.split(":", 2);
-            yield [hostname, parseInt(portNum), identity];
+            yield [{ hostname, portNum: parseInt(portNum) }, identity];
         }
+    }
+
+    public getDeviceList(): DeviceDiscoveryDecl[] {
+        return Array
+            .from(this.getAllDevices())
+            .map( ([device]) => device );
     }
 }
 
@@ -509,19 +500,67 @@ class ConnectionService extends Service {
      * @summary Map containing active database connection objects.
      * Map keys are the UUID of the remote vault, values are the connections themselves.
      */
-    private readonly connections: Map<string, PouchDB.Database<DatabaseDocument>[]>;
+    private readonly connections: Map<string, Map<string, VaultSyncToken>>;
 
     constructor() {
         super();
-        this.connections = new Map<string, PouchDB.Database<DatabaseDocument>[]>();
+        this.connections = new Map<string, Map<string, VaultSyncToken>>();
     }
 
-    public publishDatabaseConnection(device: DeviceDiscoveryDecl, vaultName: string, vaultId: string) {
-        let connectionList: PouchDB.Database<DatabaseDocument>[] | null = this.connections.get(vaultId) || null;
-        if (!connectionList) {
-            connectionList = this.connections.set(vaultId, []).get(vaultId);
+    public publishDatabaseConnection(
+        device: DeviceDiscoveryDecl,
+        vaultName: string,
+        vaultId: string,
+        localVault: VaultDB): VaultSyncToken
+    {
+        let connectionMap = this.getOrCreateMap(vaultId);
+        let connectionKey = `${device.hostname}:${device.portNum}`;
+        let connectionUrl = `http://${connectionKey}/db/${vaultName}`
+
+        if (!connectionMap.get(connectionKey)) {
+            this.logger.info("Adding remote connection to %s", connectionKey);
+
+            localVault.replicate.from(connectionUrl);
+            let connection = localVault.sync<DatabaseDocument>(connectionUrl, { live: true, });
+            connection
+                .on("change", info => this.logger.info("Changes received", info))
+                .on("error", err => {
+                    this.logger.error("Error in Sync", err);
+                    this.removeRemoteConnection(vaultId, device);
+                })
+                .on("paused", err => this.logger.error("Sync Paused", err))
+                .on("complete", err => this.logger.error("Sync Finished", err))
+                .catch(err => {
+                    this.logger.error("Rejected Promise in Sync", err);
+                });
+
+            return connectionMap.set(connectionKey, connection).get(connectionKey);
         }
-        connectionList.push(new PouchDB(`http://${device.hostname}:${device.portNum}/db/${vaultName}`));
+        else {
+            this.logger.warn("Cannot add remote connection to %s, already exists", connectionKey);
+            return connectionMap.get(connectionKey);
+        }
+    }
+
+    public removeRemoteConnection(vaultId: string, device: DeviceDiscoveryDecl): boolean {
+        let connectionMap = this.connections.get(vaultId) || null;
+        let connectionKey = `${device.hostname}:${device.portNum}`;
+
+        if (connectionMap) {
+            connectionMap.get(connectionKey).cancel();
+            return connectionMap
+                .delete(connectionKey);
+        }
+        return false;
+    }
+
+    private getOrCreateMap(vaultId: string): Map<string, VaultSyncToken> {
+        let connectionMap;
+        return (connectionMap = this.connections.get(vaultId) || null)
+            ? connectionMap
+            : this.connections
+                .set(vaultId, new Map<string, VaultSyncToken>())
+                .get(vaultId);
     }
 
     /**
@@ -529,25 +568,15 @@ class ConnectionService extends Service {
      * @public
      * @function
      *
-     * @summary Iterate over (id, database) pairs of active database connections.
+     * @summary Iterate over (id, remoteUrl) pairs of active database connections.
      */
-    public *getAllConnections(): Generator<[string, PouchDB.Database<DatabaseDocument>]> {
-        for (let [connection, databaseList] of this.connections) {
-            for (let database of databaseList) {
+    public *getAllConnections(): Generator<[string, string]> {
+        for (let [vaultId, connectionList] of this.connections) {
+            for (let [connectionKey] of connectionList) {
                 yield [
-                    connection,
-                    database
+                    vaultId,
+                    connectionKey
                 ];
-            }
-        }
-    }
-
-    public *getActiveConnections(vaultId: string): Generator<PouchDB.Database<DatabaseDocument>> {
-        for (let [connId, connectionList] of this.connections) {
-            if (connId === vaultId) {
-                for (let database of connectionList) {
-                    yield database;
-                }
             }
         }
     }
