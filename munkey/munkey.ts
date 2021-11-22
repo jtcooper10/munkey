@@ -39,8 +39,10 @@ import {
 const uniformPrint = winston.format.printf(function(
     info: winston.Logform.TransformableInfo & { label: string, timestamp: string }): string
 {
-    return `[${info.level}::${info.label}] ${info.message}`;
+    let { level, label, message } = info;
+    return `[${level}::${label}] ${message}`;
 });
+
 
 const addUniformLogger = function(serviceName: string): winston.Logger {
     winston.loggers.add(serviceName, {
@@ -48,7 +50,6 @@ const addUniformLogger = function(serviceName: string): winston.Logger {
             winston.format.splat(),
             winston.format.colorize(),
             winston.format.label({ label: serviceName }),
-            winston.format.timestamp(),
             uniformPrint,
         ),
         transports: [

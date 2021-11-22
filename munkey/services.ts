@@ -7,8 +7,8 @@
 
 import {
     DeviceDiscoveryDecl,
-    isPeerIdentityDecl,
-    PeerIdentityDecl,
+    isPeerLinkResponse,
+    PeerIdentityDecl, PeerLinkResponse,
     PeerVaultDecl,
 } from "./discovery";
 
@@ -77,9 +77,10 @@ function configureRoutes(
         request,
         response: express.Response<PeerIdentityDecl>)
     {
-        const identityResponse: PeerIdentityDecl = {
+        const identityResponse: PeerIdentityDecl & { activePeerList: DeviceDiscoveryDecl[] } = {
             uniqueId: services.identity.getId(),
             vaults: await services.vault.getActiveVaultList(),
+            activePeerList: services.activity.getDeviceList(),
         };
 
         response.json(identityResponse).end();
@@ -307,13 +308,16 @@ class IdentityService extends Service {
  * Note that active connections are not handled by this container, only locational entries.
  */
 class ActivityService extends Service {
+    public static readonly peerListId = "apl";
     private readonly activePeerList: Map<string, PeerIdentityDecl>;
     private readonly discoveryPool: Map<string, DeviceDiscoveryDecl>;
+    private readonly _activePeerList: PouchDB.Database<PeerLinkResponse>;
 
     constructor() {
         super();
         this.activePeerList = new Map<string, PeerIdentityDecl>();
         this.discoveryPool = new Map<string, DeviceDiscoveryDecl>();
+        this._activePeerList = new MemoryDB<PeerLinkResponse>(ActivityService.peerListId);
     }
 
     /**
@@ -336,7 +340,7 @@ class ActivityService extends Service {
      */
     private async sendLinkRequest(
         hostname: string,
-        portNum: number): Promise<PeerIdentityDecl|null>
+        portNum: number): Promise<PeerLinkResponse|null>
     {
         const logger = this.logger;
         const peerResponse: string|null = await new Promise<string>(function(resolve, reject) {
@@ -354,20 +358,13 @@ class ActivityService extends Service {
                 .on("error", (err: NodeJS.ErrnoException) => {
                     if (err.code === "ECONNREFUSED") {
                         logger.error("Connection Refused %s:%d", hostname, portNum);
-                        resolve(null);
                     }
-                    else {
-                        reject(err);
-                    }
+                    reject(err);
                 });
-        })
-        .catch(err => {
-            logger.error(err);
-            return null;
         });
 
         const parsedResponse = peerResponse && JSON.parse(peerResponse);
-        return isPeerIdentityDecl(parsedResponse) ? parsedResponse : null;
+        return isPeerLinkResponse(parsedResponse) ? parsedResponse : null;
     }
 
     /**
@@ -390,17 +387,36 @@ class ActivityService extends Service {
      * It is discouraged to "block" execution (i.e. `await`) based on the result.
      *
      * @param device {DeviceDiscoveryDecl} Device discovery record to publish to the APL.
+     * @param {Set<string>} deviceMask Optional set of already-discovered devices.
+     * Used to limit the depth of recursively-published devices and prevent infinite loops.
+     * Any hosts listed in the given set are skipped during the recursive publish search.
      * @returns {Promise<PeerIdentityDecl | null>} Promise which resolves to an APL entry,
      * or null if the device endpoint is deemed invalid.
      */
-    public publishDevice(device: DeviceDiscoveryDecl): Promise<PeerIdentityDecl|null>
+    public publishDevice(device: DeviceDiscoveryDecl, deviceMask?: Set<string>): Promise<PeerIdentityDecl|null>
     {
+        deviceMask ??= new Set();
+
+        this.logger.info("Attempting to publish peer device %s:%d", device.hostname, device.portNum);
         return this.sendLinkRequest(device.hostname, device.portNum)
-            .then(decl => {
+            .then(async decl => {
+                this.logger.info("Published peer device %s:%d", device.hostname, device.portNum);
                 this.activePeerList.set(`${device.hostname}:${device.portNum}`, decl);
+                let { activePeerList = [] } = decl ?? {};
+                activePeerList = activePeerList.filter(
+                    ({ hostname, portNum }) => !deviceMask.has(`${hostname}:${portNum}`)
+                );
+                activePeerList.forEach(({ hostname, portNum }) => deviceMask.add(`${hostname}:${portNum}`));
+
+                for (let peerDevice of activePeerList) {
+                    this.logger.info("Discovered peer device %s:%d", peerDevice.hostname, peerDevice.portNum);
+                    await this.publishDevice(peerDevice, deviceMask);
+                }
+
                 return decl as PeerIdentityDecl;
             })
             .catch(err => {
+                this.activePeerList.delete(`${device.hostname}:${device.portNum}`);
                 this.logger.error(err);
                 return null;
             });
@@ -451,11 +467,17 @@ class ActivityService extends Service {
      * @returns Iterator over tuple: (hostname, portNum, identityDocument).
      * Each tuple represents a single entry in the APL.
      */
-    public *getAllDevices(): Generator<[string, number, PeerIdentityDecl]> {
+    public *getAllDevices(): Generator<[DeviceDiscoveryDecl, PeerIdentityDecl]> {
         for (let [location, identity] of this.activePeerList) {
             const [hostname, portNum]: string[] = location.split(":", 2);
-            yield [hostname, parseInt(portNum), identity];
+            yield [{ hostname, portNum: parseInt(portNum) }, identity];
         }
+    }
+
+    public getDeviceList(): DeviceDiscoveryDecl[] {
+        return Array
+            .from(this.getAllDevices())
+            .map( ([device]) => device );
     }
 }
 

@@ -412,7 +412,7 @@ class ShellCommandServer extends CommandServer {
     }
 
     async onPeerList(): Promise<void> {
-        for (let [hostname, portNum, identity] of this.services.activity.getAllDevices()) {
+        for (let [{ hostname, portNum }, identity] of this.services.activity.getAllDevices()) {
             console.info(` Peer[${identity.uniqueId}]@${hostname}:${portNum}`);
             for (let vault of identity.vaults) {
                 console.info(`\t* "${vault.nickname}": Vault[${vault.vaultId}]`);
