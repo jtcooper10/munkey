@@ -2,3 +2,4 @@ node_modules/
 bin/
 pouch__all_dbs__/
 log.txt
+localhost/

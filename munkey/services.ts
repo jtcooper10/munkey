@@ -185,8 +185,14 @@ class VaultService extends Service {
         return Promise.resolve(vaultId);
     }
 
-    public useAdminService(adminService: AdminService): this {
+    public async useAdminService(adminService: AdminService): Promise<this> {
         this.adminService = adminService;
+
+        const vaultRecords = await this.adminService.getAllVaultRecords();
+        await Promise.all(vaultRecords?.map(({ vaultName, vaultId }) =>
+            this.createVault(vaultName, vaultId)
+        ) ?? []);
+
         return this;
     }
 
@@ -699,6 +705,20 @@ class AdminService extends Service {
                         this.logger.info("Vault record creation: %s", result.ok ? "Success" : "Failure");
                     });
             });
+    }
+
+    public async getAllVaultRecords(): Promise<{ vaultName: string, vaultId: string }[]> {
+        const { vaultIds = [] } = await this.adminDatabase
+            .get<AdminDatabaseDocument>("vaultIds")
+            .catch(err => {
+                if (err.status === 404) {
+                    this.logger.error("Vault ID entries not found. Did you forget to initialize() the admin database?");
+                }
+                this.logger.error("Could not retrieve vault IDs from admin database: status %d", err.status, err);
+                return null;
+            }) ?? {};
+
+        return vaultIds;
     }
 }
 

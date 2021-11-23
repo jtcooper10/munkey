@@ -87,8 +87,9 @@ const configureLogging = function(services: ServiceContainer): typeof services {
 
 async function main(services: ServiceContainer): Promise<void> {
     const commands: CommandServer = new ShellCommandServer(services);
-    await services.admin.initialize();
-    services.vault.useAdminService(services.admin);
+    await services.vault.useAdminService(
+        await services.admin.initialize()
+    );
     await commands.useStream(process.stdin)
         .then(() => process.exit(0));
 }
