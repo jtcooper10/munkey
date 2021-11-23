@@ -34,7 +34,6 @@ interface ServerOptions {
 interface DatabaseDocument {
     _id: string;
     _rev?: string;
-    entries?: { [entry: string]: string };
 }
 
 type VaultDB = PouchDB.Database<DatabaseDocument>;
@@ -158,7 +157,8 @@ class VaultService extends Service {
             this.vaultMap.set(vaultId, vault = new this.Vault(vaultName));
             this.activeVault = vaultId;
 
-            return vault.get("dict")
+            return vault
+                .get("vault")
                 .then(() => {
                     this.logger.info("Database loaded successfully: id %s", vaultId);
                     return vaultId;
@@ -166,11 +166,9 @@ class VaultService extends Service {
                 .catch(err => {
                     if (err.status === 404) {
                         this.logger.info("Database load failed; creating new instance: id %s", vaultId);
+                        const blankAttachment = Buffer.from(JSON.stringify({}));
                         return vault
-                            .put({
-                                _id: "dict",
-                                entries: {},
-                            })
+                            .putAttachment("vault", "passwords.json", blankAttachment, "text/plain")
                             .then(() => {
                                 this.logger.info("Database created successfully: id %s", vaultId);
                                 return this.adminService?.recordVaultCreation(vaultName, vaultId);

@@ -7,7 +7,7 @@
 
 import { Readable } from "stream";
 import { PeerIdentityDecl } from "./discovery";
-import {DatabaseDocument, ServiceContainer} from "./services";
+import { ServiceContainer } from "./services";
 
 interface CommandServer {
     onUnknownCommand?(args: string[]): Promise<void>;
@@ -304,23 +304,23 @@ class ShellCommandServer extends CommandServer {
         }
 
         console.info(`Adding new vault entry to ${vaultId}`);
-        const { _rev, entries } = await vault
-            .get<DatabaseDocument>("dict")
+        const { _rev } = await vault
+            .get("vault")
             .catch(err => {
                 console.error(err);
-                return { _rev: null, entries: {} };
-            });
+                return { _rev: null };
+            })
 
         if (_rev === null) {
             // Document fetch failed; do nothing.
             return Promise.resolve();
         }
 
-        await vault?.put({
-            _id: "dict",
-            _rev,
-            entries: { ...entries, [entryKey]: data },
-        }).catch(err => console.error(err));
+        const passwordDoc: { [key: string]: string } = await vault
+            .getAttachment("vault", "passwords.json")
+            .then((attachment: Buffer) => JSON.parse(attachment.toString()));
+        passwordDoc[entryKey] = data;
+        await vault.putAttachment("vault", "passwords.json", _rev, Buffer.from(JSON.stringify(passwordDoc)), "text/plain");
     }
 
     async onGetVaultEntry(entryKey: string): Promise<void> {
@@ -330,12 +330,9 @@ class ShellCommandServer extends CommandServer {
             return Promise.resolve();
         }
 
-        const { entries } = await vault
-            .get<DatabaseDocument>("dict")
-            .catch(err => {
-                console.error(err);
-                return { entries: {} }
-            });
+        const entries: { [ket: string]: string } = await vault
+            .getAttachment("vault", "passwords.json")
+            .then((attachment: Buffer) => JSON.parse(attachment.toString()));
 
         const data = entries[entryKey];
         if (!data) {

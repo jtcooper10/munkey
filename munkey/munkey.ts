@@ -24,6 +24,7 @@
 import express from "express";
 import path from "path";
 import PouchDB from "pouchdb";
+import MemDown from "memdown";
 import winston from "winston";
 import {ArgumentParser, Action, Namespace } from "argparse";
 import {
@@ -80,6 +81,7 @@ const configureLogging = function(services: ServiceContainer): typeof services {
 interface CommandLineArgs {
     root_dir: string;
     port: number;
+    in_memory: boolean;
 }
 
 const parseCommandLineArgs = function(argv: string[] = process.argv.slice(2)): CommandLineArgs {
@@ -107,6 +109,10 @@ const parseCommandLineArgs = function(argv: string[] = process.argv.slice(2)): C
         type: "int",
         default: 8000,
     });
+    parser.add_argument("--in-memory", {
+        help: "Use an in-memory database rather than on-disk (all data lost on application exit)",
+        action: "store_true",
+    })
 
     return parser.parse_args(argv) as CommandLineArgs;
 }
@@ -126,12 +132,16 @@ generateNewIdentity()
         const rootPath = args.root_dir;
         const portNum = args.port;
 
-        const LocalDB: DatabaseConstructor<DatabaseDocument> = PouchDB.defaults({
-            prefix: rootPath + path.sep + "munkey" + path.sep,
-        });
-        const AdminDB: DatabaseConstructor<DatabaseDocument> = PouchDB.defaults({
-            prefix: rootPath + path.sep + "admin" + path.sep,
-        });
+        const LocalDB: DatabaseConstructor<DatabaseDocument> = PouchDB.defaults(
+            <PouchDB.Configuration.DatabaseConfiguration> {
+                prefix: rootPath + path.sep + "munkey" + path.sep,
+                db: args.in_memory ? MemDown : undefined,
+            });
+        const AdminDB: DatabaseConstructor<DatabaseDocument> = PouchDB.defaults(
+            <PouchDB.Configuration.DatabaseConfiguration> {
+                prefix: rootPath + path.sep + "admin" + path.sep,
+                db: args.in_memory ? MemDown : undefined,
+            });
 
         return Promise.resolve(configureLogging({
                 vault: new VaultService(LocalDB),
