@@ -22,7 +22,14 @@
  */
 
 import express from "express";
+import path from "path";
+import PouchDB from "pouchdb";
 import winston from "winston";
+import { DatabaseConstructor, DatabaseDocument } from "./services";
+
+const LocalDB: DatabaseConstructor<DatabaseDocument> = PouchDB.defaults({
+    prefix: path.resolve("localhost") + path.sep,
+});
 
 import { CommandServer, ShellCommandServer } from "./command";
 import {
@@ -77,7 +84,7 @@ async function main(services: ServiceContainer): Promise<void> {
 
 generateNewIdentity()
     .then(id => configureLogging({
-        vault: new VaultService(),
+        vault: new VaultService(LocalDB),
         identity: new IdentityService(id),
         activity: new ActivityService(),
         connection: new ConnectionService(),

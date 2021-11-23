@@ -18,12 +18,12 @@ import usePouchDB from "express-pouchdb";
 import {randomUUID} from "crypto";
 import http from "http";
 import winston from "winston";
-import memdown from "memdown";
 import ErrnoException = NodeJS.ErrnoException;
 
-const MemoryDB = PouchDB.defaults(<PouchDB.Configuration.DatabaseConfiguration> {
-    db: memdown
-});
+type DatabaseConstructor<T> = {
+    new<T>(name?: string, options?: PouchDB.Configuration.DatabaseConfiguration):
+        PouchDB.Database<T>;
+};
 
 interface ServerOptions {
     portNum: number;
@@ -86,7 +86,7 @@ function configureRoutes(
         response.json(identityResponse).end();
     });
 
-    app.use("/db", usePouchDB(MemoryDB));
+    app.use("/db", usePouchDB(services.vault.getVaultConstructor()));
 
     return services.web.listen(portNum)
         .then(() => services);
@@ -115,7 +115,7 @@ class VaultService extends Service {
     private readonly vaultIdMap: Map<string, string>;
     private activeVault: string | null;
 
-    constructor() {
+    constructor(private Vault: DatabaseConstructor<DatabaseDocument>) {
         super();
         this.vaultMap = new Map<string, PouchDB.Database<DatabaseDocument>>();
         this.vaultIdMap = new Map<string, string>();
@@ -149,15 +149,27 @@ class VaultService extends Service {
         else if (!vault) {
             // Vault not found; create it and initialize its schema.
             this.vaultIdMap.set(vaultName, vaultId ??= randomUUID());
-            this.vaultMap.set(vaultId, vault = new MemoryDB(vaultName));
+            this.vaultMap.set(vaultId, vault = new this.Vault(vaultName));
             this.activeVault = vaultId;
-            return vault.put({
-                    _id: "dict",
-                    entries: {},
+
+            return vault.get("dict")
+                .then(() => {
+                    this.logger.info("Database loaded successfully: id %s", vaultId);
+                    return vaultId;
                 })
-                .then(() => vaultId)
                 .catch(err => {
-                    this.logger.error(err);
+                    if (err.status === 404) {
+                        this.logger.info("Database load failed; creating new instance: id %s", vaultId);
+                        return vault.put({
+                                _id: "dict",
+                                entries: {},
+                            })
+                            .then(() => {
+                                this.logger.info("Database created successfully: id %s", vaultId);
+                                return vaultId;
+                            });
+                    }
+                    this.logger.error("Failed to create local database", err);
                     return null;
                 });
         }
@@ -268,6 +280,10 @@ class VaultService extends Service {
         }
         return vaultList;
     }
+
+    public getVaultConstructor(): DatabaseConstructor<DatabaseDocument> {
+        return this.Vault;
+    }
 }
 
 /**
@@ -308,16 +324,13 @@ class IdentityService extends Service {
  * Note that active connections are not handled by this container, only locational entries.
  */
 class ActivityService extends Service {
-    public static readonly peerListId = "apl";
     private readonly activePeerList: Map<string, PeerIdentityDecl>;
     private readonly discoveryPool: Map<string, DeviceDiscoveryDecl>;
-    private readonly _activePeerList: PouchDB.Database<PeerLinkResponse>;
 
     constructor() {
         super();
         this.activePeerList = new Map<string, PeerIdentityDecl>();
         this.discoveryPool = new Map<string, DeviceDiscoveryDecl>();
-        this._activePeerList = new MemoryDB<PeerLinkResponse>(ActivityService.peerListId);
     }
 
     /**
@@ -652,6 +665,7 @@ export {
 
     /* TS Interfaces */
     DatabaseDocument,
+    DatabaseConstructor,
     Service,
     ServiceList,
 };
