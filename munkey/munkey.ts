@@ -25,10 +25,19 @@ import express from "express";
 import path from "path";
 import PouchDB from "pouchdb";
 import winston from "winston";
-import { DatabaseConstructor, DatabaseDocument } from "./services";
+import {
+    AdminService,
+    DatabaseConstructor,
+    DatabaseDocument
+} from "./services";
+
+const rootPath = path.resolve("localhost");
 
 const LocalDB: DatabaseConstructor<DatabaseDocument> = PouchDB.defaults({
-    prefix: path.resolve("localhost") + path.sep,
+    prefix: rootPath + path.sep + "munkey" + path.sep,
+});
+const AdminDB: DatabaseConstructor<DatabaseDocument> = PouchDB.defaults({
+    prefix: rootPath + path.sep + "admin" + path.sep,
 });
 
 import { CommandServer, ShellCommandServer } from "./command";
@@ -78,6 +87,8 @@ const configureLogging = function(services: ServiceContainer): typeof services {
 
 async function main(services: ServiceContainer): Promise<void> {
     const commands: CommandServer = new ShellCommandServer(services);
+    await services.admin.initialize();
+    services.vault.useAdminService(services.admin);
     await commands.useStream(process.stdin)
         .then(() => process.exit(0));
 }
@@ -89,10 +100,11 @@ generateNewIdentity()
         activity: new ActivityService(),
         connection: new ConnectionService(),
         web: new WebService(express()),
+        admin: new AdminService(new AdminDB("info")),
     }))
     .then(services => configureRoutes(services, {
         portNum: process.argv.length > 2 ? parseInt(process.argv[2]) : 8000,
-        logging: addUniformLogger("http"),
+        rootPath,
     }))
     .then(services => main(services))
     .catch(err => {

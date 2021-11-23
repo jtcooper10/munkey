@@ -19,6 +19,7 @@ import {randomUUID} from "crypto";
 import http from "http";
 import winston from "winston";
 import ErrnoException = NodeJS.ErrnoException;
+import path from "path";
 
 type DatabaseConstructor<T> = {
     new<T>(name?: string, options?: PouchDB.Configuration.DatabaseConfiguration):
@@ -27,7 +28,7 @@ type DatabaseConstructor<T> = {
 
 interface ServerOptions {
     portNum: number;
-    logging?: winston.Logger;
+    rootPath?: string;
 }
 
 interface DatabaseDocument {
@@ -60,7 +61,8 @@ function generateNewIdentity(): Promise<string> {
  * @param {ServiceContainer} services Service container to attach endpoints to.
  * Any updates issued by the web server will be applied to this service container.
  * @param {number} portNum Port number for the web server to listen on.
- * @param {winston.Logger} logging Logging container used to log HTTP requests by the server.
+ * @param {string} rootPath Root location of the running application instance.
+ * Any configuration files or persisted data will be stored relative to this location.
  * If not specified, no logging is captured.
  *
  * @returns Promise which resolves to a fully-configured Express.js application object.
@@ -68,9 +70,11 @@ function generateNewIdentity(): Promise<string> {
  */
 function configureRoutes(
     services: ServiceContainer,
-    { portNum = 8000, logging = null }: ServerOptions = { portNum: 8000 }): Promise<ServiceContainer>
+    { portNum = 8000, rootPath = null }: ServerOptions = { portNum: 8000 }): Promise<ServiceContainer>
 {
     const app = services.web.getApplication();
+    const pouchOptions = !rootPath ? {}
+        : { logPath: path.resolve(rootPath) + path.sep + "log.txt" };
     app.use("/link", express.json());
 
     app.get("/link", async function(
@@ -86,7 +90,7 @@ function configureRoutes(
         response.json(identityResponse).end();
     });
 
-    app.use("/db", usePouchDB(services.vault.getVaultConstructor()));
+    app.use("/db", usePouchDB(services.vault.getVaultConstructor(), pouchOptions));
 
     return services.web.listen(portNum)
         .then(() => services);
@@ -114,12 +118,14 @@ class VaultService extends Service {
     private readonly vaultMap: Map<string, PouchDB.Database<DatabaseDocument>>;
     private readonly vaultIdMap: Map<string, string>;
     private activeVault: string | null;
+    private adminService?: AdminService;
 
     constructor(private Vault: DatabaseConstructor<DatabaseDocument>) {
         super();
         this.vaultMap = new Map<string, PouchDB.Database<DatabaseDocument>>();
         this.vaultIdMap = new Map<string, string>();
         this.activeVault = null;
+        this.adminService = null;
     }
 
     /**
@@ -160,14 +166,16 @@ class VaultService extends Service {
                 .catch(err => {
                     if (err.status === 404) {
                         this.logger.info("Database load failed; creating new instance: id %s", vaultId);
-                        return vault.put({
+                        return vault
+                            .put({
                                 _id: "dict",
                                 entries: {},
                             })
                             .then(() => {
                                 this.logger.info("Database created successfully: id %s", vaultId);
-                                return vaultId;
-                            });
+                                return this.adminService?.recordVaultCreation(vaultName, vaultId);
+                            })
+                            .then(() => vaultId);
                     }
                     this.logger.error("Failed to create local database", err);
                     return null;
@@ -175,6 +183,11 @@ class VaultService extends Service {
         }
 
         return Promise.resolve(vaultId);
+    }
+
+    public useAdminService(adminService: AdminService): this {
+        this.adminService = adminService;
+        return this;
     }
 
     public async deleteVaultById(vaultId: string, vaultName: string): Promise<void> {
@@ -638,6 +651,57 @@ class WebService extends Service {
     }
 }
 
+interface AdminDatabaseDocument {
+    _id: string;
+    vaultIds: { vaultName: string, vaultId: string }[];
+}
+
+type AdminDB = PouchDB.Database<AdminDatabaseDocument>;
+
+class AdminService extends Service {
+    constructor(private adminDatabase: AdminDB) {
+        super();
+    }
+
+    public initialize(): Promise<this> {
+        return this.adminDatabase
+            .get<AdminDatabaseDocument>("vaultIds")
+            .then(() => {
+                this.logger.info("Admin database validated successfully");
+                return this;
+            })
+            .catch(err => {
+                if (err.status === 404) {
+                    return this.adminDatabase.put({
+                            _id: "vaultIds",
+                            vaultIds: [],
+                        })
+                        .then(doc => {
+                            this.logger.info("Admin database initialization: %s", (doc.ok ? "Success" : "Failure"));
+                            return this;
+                        });
+                }
+                throw err;
+            });
+    }
+
+    public recordVaultCreation(vaultName: string, vaultId: string): Promise<void> {
+        return this.adminDatabase
+            .get<AdminDatabaseDocument>("vaultIds")
+            .then(doc => {
+                const { _id, _rev, vaultIds } = doc;
+                return this.adminDatabase.put({
+                        _id,
+                        _rev,
+                        vaultIds: [...vaultIds, { vaultName, vaultId }],
+                    })
+                    .then(result => {
+                        this.logger.info("Vault record creation: %s", result.ok ? "Success" : "Failure");
+                    });
+            });
+    }
+}
+
 interface ServiceList {
     [serviceName: string]: Service;
 }
@@ -648,6 +712,7 @@ interface ServiceContainer extends ServiceList {
     activity: ActivityService;
     connection: ConnectionService;
     web: WebService;
+    admin: AdminService;
 }
 
 export {
@@ -658,6 +723,7 @@ export {
     ActivityService,
     ConnectionService,
     WebService,
+    AdminService,
 
     /* Configuration Functions */
     configureRoutes,
