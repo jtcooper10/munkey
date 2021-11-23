@@ -22,7 +22,15 @@
  */
 
 import express from "express";
+import path from "path";
+import PouchDB from "pouchdb";
 import winston from "winston";
+import {ArgumentParser, Action, Namespace } from "argparse";
+import {
+    AdminService,
+    DatabaseConstructor,
+    DatabaseDocument
+} from "./services";
 
 import { CommandServer, ShellCommandServer } from "./command";
 import {
@@ -69,24 +77,75 @@ const configureLogging = function(services: ServiceContainer): typeof services {
     return services;
 };
 
+interface CommandLineArgs {
+    root_dir: string;
+    port: number;
+}
+
+const parseCommandLineArgs = function(argv: string[] = process.argv.slice(2)): CommandLineArgs {
+    class PathResolver extends Action {
+        call(parser: ArgumentParser,
+             namespace: Namespace,
+             values: string | string[],
+             optionString: string | null): void
+        {
+            if (values instanceof Array) {
+                values = values.join(path.sep);
+            }
+            namespace[this.dest] = path.resolve(values);
+        }
+    }
+    const parser = new ArgumentParser();
+    parser.add_argument("-r", "--root-dir", {
+        help: "Root directory where all database and configuration files will be stored to and loaded from",
+        action: PathResolver,
+        // TODO: on release, change this to something else (temp/home dir maybe?)
+        default: path.resolve("localhost"),
+    });
+    parser.add_argument("-p", "--port", {
+        help: "Initial port number for the web server to listen on (can be reconfigured at runtime)",
+        type: "int",
+        default: 8000,
+    });
+
+    return parser.parse_args(argv) as CommandLineArgs;
+}
+
 async function main(services: ServiceContainer): Promise<void> {
     const commands: CommandServer = new ShellCommandServer(services);
+    await services.vault.useAdminService(
+        await services.admin.initialize()
+    );
     await commands.useStream(process.stdin)
         .then(() => process.exit(0));
 }
 
 generateNewIdentity()
-    .then(id => configureLogging({
-        vault: new VaultService(),
-        identity: new IdentityService(id),
-        activity: new ActivityService(),
-        connection: new ConnectionService(),
-        web: new WebService(express()),
-    }))
-    .then(services => configureRoutes(services, {
-        portNum: process.argv.length > 2 ? parseInt(process.argv[2]) : 8000,
-        logging: addUniformLogger("http"),
-    }))
+    .then(id => {
+        const args = parseCommandLineArgs(process.argv.slice(2));
+        const rootPath = args.root_dir;
+        const portNum = args.port;
+
+        const LocalDB: DatabaseConstructor<DatabaseDocument> = PouchDB.defaults({
+            prefix: rootPath + path.sep + "munkey" + path.sep,
+        });
+        const AdminDB: DatabaseConstructor<DatabaseDocument> = PouchDB.defaults({
+            prefix: rootPath + path.sep + "admin" + path.sep,
+        });
+
+        return Promise.resolve(configureLogging({
+                vault: new VaultService(LocalDB),
+                identity: new IdentityService(id),
+                activity: new ActivityService(),
+                connection: new ConnectionService(),
+                web: new WebService(express()),
+                admin: new AdminService(new AdminDB("info")),
+            }))
+            .then(services => configureRoutes(services, {
+                portNum,
+                rootPath,
+            }));
+    })
     .then(services => main(services))
     .catch(err => {
         console.error(err);

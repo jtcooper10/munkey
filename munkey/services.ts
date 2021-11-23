@@ -18,16 +18,17 @@ import usePouchDB from "express-pouchdb";
 import {randomUUID} from "crypto";
 import http from "http";
 import winston from "winston";
-import memdown from "memdown";
 import ErrnoException = NodeJS.ErrnoException;
+import path from "path";
 
-const MemoryDB = PouchDB.defaults(<PouchDB.Configuration.DatabaseConfiguration> {
-    db: memdown
-});
+type DatabaseConstructor<T> = {
+    new<T>(name?: string, options?: PouchDB.Configuration.DatabaseConfiguration):
+        PouchDB.Database<T>;
+};
 
 interface ServerOptions {
     portNum: number;
-    logging?: winston.Logger;
+    rootPath?: string;
 }
 
 interface DatabaseDocument {
@@ -60,7 +61,8 @@ function generateNewIdentity(): Promise<string> {
  * @param {ServiceContainer} services Service container to attach endpoints to.
  * Any updates issued by the web server will be applied to this service container.
  * @param {number} portNum Port number for the web server to listen on.
- * @param {winston.Logger} logging Logging container used to log HTTP requests by the server.
+ * @param {string} rootPath Root location of the running application instance.
+ * Any configuration files or persisted data will be stored relative to this location.
  * If not specified, no logging is captured.
  *
  * @returns Promise which resolves to a fully-configured Express.js application object.
@@ -68,9 +70,11 @@ function generateNewIdentity(): Promise<string> {
  */
 function configureRoutes(
     services: ServiceContainer,
-    { portNum = 8000, logging = null }: ServerOptions = { portNum: 8000 }): Promise<ServiceContainer>
+    { portNum = 8000, rootPath = null }: ServerOptions = { portNum: 8000 }): Promise<ServiceContainer>
 {
     const app = services.web.getApplication();
+    const pouchOptions = !rootPath ? {}
+        : { logPath: path.resolve(rootPath) + path.sep + "log.txt" };
     app.use("/link", express.json());
 
     app.get("/link", async function(
@@ -86,7 +90,7 @@ function configureRoutes(
         response.json(identityResponse).end();
     });
 
-    app.use("/db", usePouchDB(MemoryDB));
+    app.use("/db", usePouchDB(services.vault.getVaultConstructor(), pouchOptions));
 
     return services.web.listen(portNum)
         .then(() => services);
@@ -114,12 +118,14 @@ class VaultService extends Service {
     private readonly vaultMap: Map<string, PouchDB.Database<DatabaseDocument>>;
     private readonly vaultIdMap: Map<string, string>;
     private activeVault: string | null;
+    private adminService?: AdminService;
 
-    constructor() {
+    constructor(private Vault: DatabaseConstructor<DatabaseDocument>) {
         super();
         this.vaultMap = new Map<string, PouchDB.Database<DatabaseDocument>>();
         this.vaultIdMap = new Map<string, string>();
         this.activeVault = null;
+        this.adminService = null;
     }
 
     /**
@@ -149,20 +155,45 @@ class VaultService extends Service {
         else if (!vault) {
             // Vault not found; create it and initialize its schema.
             this.vaultIdMap.set(vaultName, vaultId ??= randomUUID());
-            this.vaultMap.set(vaultId, vault = new MemoryDB(vaultName));
+            this.vaultMap.set(vaultId, vault = new this.Vault(vaultName));
             this.activeVault = vaultId;
-            return vault.put({
-                    _id: "dict",
-                    entries: {},
+
+            return vault.get("dict")
+                .then(() => {
+                    this.logger.info("Database loaded successfully: id %s", vaultId);
+                    return vaultId;
                 })
-                .then(() => vaultId)
                 .catch(err => {
-                    this.logger.error(err);
+                    if (err.status === 404) {
+                        this.logger.info("Database load failed; creating new instance: id %s", vaultId);
+                        return vault
+                            .put({
+                                _id: "dict",
+                                entries: {},
+                            })
+                            .then(() => {
+                                this.logger.info("Database created successfully: id %s", vaultId);
+                                return this.adminService?.recordVaultCreation(vaultName, vaultId);
+                            })
+                            .then(() => vaultId);
+                    }
+                    this.logger.error("Failed to create local database", err);
                     return null;
                 });
         }
 
         return Promise.resolve(vaultId);
+    }
+
+    public async useAdminService(adminService: AdminService): Promise<this> {
+        this.adminService = adminService;
+
+        const vaultRecords = await this.adminService.getAllVaultRecords();
+        await Promise.all(vaultRecords?.map(({ vaultName, vaultId }) =>
+            this.createVault(vaultName, vaultId)
+        ) ?? []);
+
+        return this;
     }
 
     public async deleteVaultById(vaultId: string, vaultName: string): Promise<void> {
@@ -268,6 +299,10 @@ class VaultService extends Service {
         }
         return vaultList;
     }
+
+    public getVaultConstructor(): DatabaseConstructor<DatabaseDocument> {
+        return this.Vault;
+    }
 }
 
 /**
@@ -308,16 +343,13 @@ class IdentityService extends Service {
  * Note that active connections are not handled by this container, only locational entries.
  */
 class ActivityService extends Service {
-    public static readonly peerListId = "apl";
     private readonly activePeerList: Map<string, PeerIdentityDecl>;
     private readonly discoveryPool: Map<string, DeviceDiscoveryDecl>;
-    private readonly _activePeerList: PouchDB.Database<PeerLinkResponse>;
 
     constructor() {
         super();
         this.activePeerList = new Map<string, PeerIdentityDecl>();
         this.discoveryPool = new Map<string, DeviceDiscoveryDecl>();
-        this._activePeerList = new MemoryDB<PeerLinkResponse>(ActivityService.peerListId);
     }
 
     /**
@@ -625,6 +657,71 @@ class WebService extends Service {
     }
 }
 
+interface AdminDatabaseDocument {
+    _id: string;
+    vaultIds: { vaultName: string, vaultId: string }[];
+}
+
+type AdminDB = PouchDB.Database<AdminDatabaseDocument>;
+
+class AdminService extends Service {
+    constructor(private adminDatabase: AdminDB) {
+        super();
+    }
+
+    public initialize(): Promise<this> {
+        return this.adminDatabase
+            .get<AdminDatabaseDocument>("vaultIds")
+            .then(() => {
+                this.logger.info("Admin database validated successfully");
+                return this;
+            })
+            .catch(err => {
+                if (err.status === 404) {
+                    return this.adminDatabase.put({
+                            _id: "vaultIds",
+                            vaultIds: [],
+                        })
+                        .then(doc => {
+                            this.logger.info("Admin database initialization: %s", (doc.ok ? "Success" : "Failure"));
+                            return this;
+                        });
+                }
+                throw err;
+            });
+    }
+
+    public recordVaultCreation(vaultName: string, vaultId: string): Promise<void> {
+        return this.adminDatabase
+            .get<AdminDatabaseDocument>("vaultIds")
+            .then(doc => {
+                const { _id, _rev, vaultIds } = doc;
+                return this.adminDatabase.put({
+                        _id,
+                        _rev,
+                        vaultIds: [...vaultIds, { vaultName, vaultId }],
+                    })
+                    .then(result => {
+                        this.logger.info("Vault record creation: %s", result.ok ? "Success" : "Failure");
+                    });
+            });
+    }
+
+    public async getAllVaultRecords(): Promise<{ vaultName: string, vaultId: string }[]> {
+        const { vaultIds = [] } = await this.adminDatabase
+            .get<AdminDatabaseDocument>("vaultIds")
+            .catch(err => {
+                if (err.status === 404) {
+                    this.logger.error("Vault ID entries not found. Did you forget to initialize() the admin database?");
+                }
+                this.logger.error("Could not retrieve vault IDs from admin database: status %d", err.status, err);
+                return null;
+            }) ?? {};
+
+        return vaultIds;
+    }
+}
+
 interface ServiceList {
     [serviceName: string]: Service;
 }
@@ -635,6 +732,7 @@ interface ServiceContainer extends ServiceList {
     activity: ActivityService;
     connection: ConnectionService;
     web: WebService;
+    admin: AdminService;
 }
 
 export {
@@ -645,6 +743,7 @@ export {
     ActivityService,
     ConnectionService,
     WebService,
+    AdminService,
 
     /* Configuration Functions */
     configureRoutes,
@@ -652,6 +751,7 @@ export {
 
     /* TS Interfaces */
     DatabaseDocument,
+    DatabaseConstructor,
     Service,
     ServiceList,
 };
