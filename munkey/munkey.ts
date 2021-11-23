@@ -33,7 +33,7 @@ import {
     DatabaseDocument
 } from "./services";
 
-import { CommandServer, ShellCommandServer } from "./command";
+import { ShellCommandServer } from "./command";
 import {
     ServiceContainer,
     generateNewIdentity,
@@ -118,7 +118,7 @@ const parseCommandLineArgs = function(argv: string[] = process.argv.slice(2)): C
 }
 
 async function main(services: ServiceContainer): Promise<void> {
-    const commands: CommandServer = new ShellCommandServer(services);
+    const commands: ShellCommandServer = new ShellCommandServer(services);
     await services.vault.useAdminService(
         await services.admin.initialize()
     );

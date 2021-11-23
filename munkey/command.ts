@@ -9,13 +9,6 @@ import { Readable } from "stream";
 import { PeerIdentityDecl } from "./discovery";
 import { ServiceContainer } from "./services";
 
-interface CommandServer {
-    onUnknownCommand?(args: string[]): Promise<void>;
-    onStartup?(): Promise<void>;
-    beforeEach?(): void;
-    afterEach?(): void;
-}
-
 type CommandEntry = ((args: string[]) => Promise<void>) | CommandSet;
 type CommandSet = { [command: string]: CommandEntry };
 
@@ -29,223 +22,8 @@ type CommandSet = { [command: string]: CommandEntry };
  */
 abstract class CommandServer {
 
-    private commands: CommandSet = {
-        "vault": {
-            "new": ([vaultName = null]: string[] = []): Promise<void> => {
-                if (vaultName === null) {
-                    console.error("Missing name for vault creation");
-                    return Promise.resolve();
-                }
-                return this.onCreateVault(vaultName);
-            },
+    protected constructor(private services: ServiceContainer) {
 
-            "delete": ([vaultName = null]: string[] = []): Promise<void> => {
-                if (vaultName === null) {
-                    console.error("Missing name for vault deletion");
-                    return Promise.resolve();
-                }
-                return this.onDeleteVault(vaultName);
-            },
-
-            "use": ([vaultName = null]: string[] = []): Promise<void> => {
-                if (vaultName === null) {
-                    console.error("Missing name for vault switch");
-                    return Promise.resolve();
-                }
-                return this.onUseVault(vaultName);
-            },
-
-            "set": ([entryKey = null, entryData = null]: string[] = []): Promise<void> => {
-                if (entryKey === null || entryData === null) {
-                    console.error(`Missing ${entryKey ? "data" : "key name"} for entry creation`);
-                    return Promise.resolve();
-                }
-                return this.onSetVaultEntry(entryKey, entryData);
-            },
-
-            "get": ([entryKey = null]: string[]): Promise<void> => {
-                if (entryKey === null) {
-                    console.error("Missing key name for entry retrieval");
-                    return Promise.resolve();
-                }
-                return this.onGetVaultEntry(entryKey);
-            },
-
-            "list": this.onListVaults.bind(this),
-
-            "link": ([linkTarget = null, ...rest]: string[]): Promise<void> => {
-                if (linkTarget === null) {
-                    console.error("Missing link target for vault link");
-                    return Promise.resolve();
-                }
-
-                const [vaultName, connection]: string[] = linkTarget.split("@");
-                if (vaultName.trim().length === 0) {
-                    console.error("Missing vault name from link target");
-                    return Promise.resolve();
-                }
-
-                let hostname: string, portNum: number;
-                try {
-                    [hostname, portNum] = this.resolveHost(connection);
-                }
-                catch (err) {
-                    console.error("Failed to parse connection string");
-                    return Promise.resolve();
-                }
-
-                const [subCommand = null, subArg = null]: (string | null)[] = rest;
-                if (subCommand?.toLowerCase() === "as") {
-                    if (subArg === null) {
-                        console.error("Missing local nickname for vault link");
-                        return Promise.resolve();
-                    }
-                    return this.onVaultLink(hostname, portNum, vaultName, subArg);
-                }
-
-                return this.onVaultLink(hostname, portNum, vaultName);
-            },
-        },
-        "link": {
-            "up": this.onLinkUp.bind(this),
-            "down": this.onLinkDown.bind(this),
-        },
-        "peer": {
-            "sync": ([peerId = null]: string[] = []): Promise<void> => {
-                if (peerId === null) {
-                    console.error("Missing peer id for peer sync");
-                    return Promise.resolve();
-                }
-                return this.onPeerSync(peerId);
-            },
-            "link": ([connection = null]: string[] = []): Promise<void> => {
-                if (connection === null) {
-                    console.error("Missing connection string for peer link");
-                    return Promise.resolve();
-                }
-
-                let hostname: string, portNum: number;
-                try {
-                    [hostname, portNum] = this.resolveHost(connection);
-                }
-                catch (err) {
-                    console.error("Failed to parse host string");
-                    return Promise.resolve();
-                }
-
-                return this.onPeerLink(hostname, portNum);
-            },
-            "list": this.onPeerList.bind(this),
-        }
-    }
-
-    /**
-     * Perform command parsing on the provided readable stream.
-     * Resolves when the communication stream has been closed.
-     * 
-     * The abstract method implementations will be invoked on their corresponding commands.
-     * 
-     * @param stream Node.js Readable stream with expected user input.
-     * @returns Promise which resolves once the Readable stream has been closed.
-     */
-    public async useStream(stream: Readable): Promise<void> {
-        await this.onStartup();
-
-        return new Promise((resolve, reject) => {
-            stream.on("data", async (chunk: Buffer) => {
-                const args: string[] = chunk.toString()
-                    .split(/\s+/g)
-                    .filter(arg => arg.length > 0);
-                await this.parseCommand(args);
-                this.afterEach();
-            });
-
-            stream.on("end", function() {
-                console.log("Reached end of stream.");
-                resolve();
-            });
-
-            stream.on("error", function(err: Error) {
-                reject(err);
-            });
-        });
-    }
-
-    /**
-     * Process vault operation commands of the format `vault <...>`
-     * 
-     * @param args List of args passed to the `vault` command
-     * I.e., `vault new vaultname` -> ["new", "vaultname"]
-     * @returns Promise corresponding to the given vault command.
-     */
-    private parseCommand(args: string[]): Promise<void> {
-        let command: string,
-            commandArgs: string[] = args,
-            forward: CommandEntry = this.commands;
-        do {
-            [command, ...commandArgs] = commandArgs;
-            if (!(command in forward)) {
-
-            }
-            ({ [command]: forward } = forward);
-        } while (forward && !(forward instanceof Function));
-
-        return forward && forward instanceof Function
-            ? forward(commandArgs)
-            : this.onUnknownCommand(args);
-    }
-
-    private resolveHost(connection: string): [string, number] | null {
-        // List of errors is tracked rather than one error.
-        // This is because there is often >1 issue involved with parsing.
-        let errorsFound: string[] = [],
-            hostname: string,
-            portNum: string|number;
-        [hostname, portNum] = connection.split(":", 2);
-        portNum = parseInt(portNum) as number;
-
-        if (hostname.length < 1) {
-            errorsFound.push(`Could not parse hostname from connection string [${connection}]`);
-        }
-        if (isNaN(portNum)) {
-            errorsFound.push(`Could not parse port number from connection string [${connection}]`);
-        }
-
-        if (errorsFound.length > 0) {
-            for (let errString of errorsFound) {
-                console.error(errString);
-            }
-            return null;
-        }
-
-        return [hostname, portNum];
-    }
-
-    abstract onCreateVault(vaultName: string): Promise<void>;
-    abstract onUseVault(vaultName: string): Promise<void>;
-    abstract onDeleteVault(vaultName: string): Promise<void>;
-    abstract onSetVaultEntry(entryKey: string, data: string): Promise<void>;
-    abstract onGetVaultEntry(entryKey: string): Promise<void>;
-    abstract onListVaults(): Promise<void>;
-    abstract onVaultLink(hostname: string, portNum: number, vaultName: string, vaultNickname?: string): Promise<void>;
-
-    abstract onLinkUp(): Promise<void>;
-    abstract onLinkDown(): Promise<void>;
-
-    abstract onPeerSync(peerId: string): Promise<void>;
-    abstract onPeerLink(hostname: string, portNum: number): Promise<void>;
-    abstract onPeerList(): Promise<void>;
-
-    async onUnknownCommand?(args: string[]): Promise<void> {}
-    async onStartup?(): Promise<void> {}
-    beforeEach?() {}
-    afterEach?() {}
-}
-
-class ShellCommandServer extends CommandServer {
-
-    constructor(private services: ServiceContainer) {
-        super();
     }
 
     async onCreateVault(vaultName: string): Promise<void> {
@@ -254,6 +32,12 @@ class ShellCommandServer extends CommandServer {
         if (this.services.vault.getVaultByName(vaultName)) {
             return console.error(`Cannot create vault ${vaultName} (already exists)`);
         }
+
+        // Step 1: Prompt user to create a password.
+        // Step 2: Transform password into derived key
+        // Step 3: Pass this key into the vault creation thing.
+        //         Have it store the key internally, and expire after a certain amount of time.
+        // Step 4: Modify read/update to include an `integrityKey`.
 
         try {
             const vaultId: string | null = await this.services.vault.createVault(vaultName);
@@ -417,7 +201,204 @@ class ShellCommandServer extends CommandServer {
         }
     }
 
-    async onUnknownCommand([command = "unknown", ...args]: string[] = []): Promise<void> {
+}
+
+class ShellCommandServer extends CommandServer {
+
+    constructor(services: ServiceContainer) {
+        super(services);
+    }
+
+    private commands: CommandSet = {
+        "vault": {
+            "new": ([vaultName = null]: string[] = []): Promise<void> => {
+                if (vaultName === null) {
+                    console.error("Missing name for vault creation");
+                    return Promise.resolve();
+                }
+                return this.onCreateVault(vaultName);
+            },
+
+            "delete": ([vaultName = null]: string[] = []): Promise<void> => {
+                if (vaultName === null) {
+                    console.error("Missing name for vault deletion");
+                    return Promise.resolve();
+                }
+                return this.onDeleteVault(vaultName);
+            },
+
+            "use": ([vaultName = null]: string[] = []): Promise<void> => {
+                if (vaultName === null) {
+                    console.error("Missing name for vault switch");
+                    return Promise.resolve();
+                }
+                return this.onUseVault(vaultName);
+            },
+
+            "set": ([entryKey = null, entryData = null]: string[] = []): Promise<void> => {
+                if (entryKey === null || entryData === null) {
+                    console.error(`Missing ${entryKey ? "data" : "key name"} for entry creation`);
+                    return Promise.resolve();
+                }
+                return this.onSetVaultEntry(entryKey, entryData);
+            },
+
+            "get": ([entryKey = null]: string[]): Promise<void> => {
+                if (entryKey === null) {
+                    console.error("Missing key name for entry retrieval");
+                    return Promise.resolve();
+                }
+                return this.onGetVaultEntry(entryKey);
+            },
+
+            "list": this.onListVaults.bind(this),
+
+            "link": ([linkTarget = null, ...rest]: string[]): Promise<void> => {
+                if (linkTarget === null) {
+                    console.error("Missing link target for vault link");
+                    return Promise.resolve();
+                }
+
+                const [vaultName, connection]: string[] = linkTarget.split("@");
+                if (vaultName.trim().length === 0) {
+                    console.error("Missing vault name from link target");
+                    return Promise.resolve();
+                }
+
+                let hostname: string, portNum: number;
+                try {
+                    [hostname, portNum] = this.resolveHost(connection);
+                }
+                catch (err) {
+                    console.error("Failed to parse connection string");
+                    return Promise.resolve();
+                }
+
+                const [subCommand = null, subArg = null]: (string | null)[] = rest;
+                if (subCommand?.toLowerCase() === "as") {
+                    if (subArg === null) {
+                        console.error("Missing local nickname for vault link");
+                        return Promise.resolve();
+                    }
+                    return this.onVaultLink(hostname, portNum, vaultName, subArg);
+                }
+
+                return this.onVaultLink(hostname, portNum, vaultName);
+            },
+        },
+        "link": {
+            "up": this.onLinkUp.bind(this),
+            "down": this.onLinkDown.bind(this),
+        },
+        "peer": {
+            "sync": ([peerId = null]: string[] = []): Promise<void> => {
+                if (peerId === null) {
+                    console.error("Missing peer id for peer sync");
+                    return Promise.resolve();
+                }
+                return this.onPeerSync(peerId);
+            },
+            "link": ([connection = null]: string[] = []): Promise<void> => {
+                if (connection === null) {
+                    console.error("Missing connection string for peer link");
+                    return Promise.resolve();
+                }
+
+                let hostname: string, portNum: number;
+                try {
+                    [hostname, portNum] = this.resolveHost(connection);
+                }
+                catch (err) {
+                    console.error("Failed to parse host string");
+                    return Promise.resolve();
+                }
+
+                return this.onPeerLink(hostname, portNum);
+            },
+            "list": this.onPeerList.bind(this),
+        }
+    }
+
+    /**
+     * Perform command parsing on the provided readable stream.
+     * Resolves when the communication stream has been closed.
+     *
+     * The abstract method implementations will be invoked on their corresponding commands.
+     *
+     * @param stream Node.js Readable stream with expected user input.
+     * @returns Promise which resolves once the Readable stream has been closed.
+     */
+    public async useStream(stream: Readable): Promise<void> {
+        await this.onStartup();
+
+        return new Promise((resolve, reject) => {
+            stream.on("data", async (chunk: Buffer) => {
+                const args: string[] = chunk.toString()
+                    .split(/\s+/g)
+                    .filter(arg => arg.length > 0);
+                await this.parseCommand(args);
+                this.afterEach();
+            });
+
+            stream.on("end", function() {
+                console.log("Reached end of stream.");
+                resolve();
+            });
+
+            stream.on("error", function(err: Error) {
+                reject(err);
+            });
+        });
+    }
+
+    /**
+     * Process vault operation commands of the format `vault <...>`
+     *
+     * @param args List of args passed to the `vault` command
+     * I.e., `vault new vaultname` -> ["new", "vaultname"]
+     * @returns Promise corresponding to the given vault command.
+     */
+    private parseCommand(args: string[]): Promise<void> {
+        let command: string,
+            commandArgs: string[] = args,
+            forward: CommandEntry = this.commands;
+        do {
+            [command, ...commandArgs] = commandArgs;
+            ({ [command]: forward } = forward);
+        } while (forward && !(forward instanceof Function));
+
+        return forward && forward instanceof Function
+            ? forward(commandArgs)
+            : this.onUnknownCommand(args);
+    }
+
+    private resolveHost(connection: string): [string, number] | null {
+        // List of errors is tracked rather than one error.
+        // This is because there is often >1 issue involved with parsing.
+        let errorsFound: string[] = [],
+            hostname: string,
+            portNum: string|number;
+        [hostname, portNum] = connection.split(":", 2);
+        portNum = parseInt(portNum) as number;
+
+        if (hostname.length < 1) {
+            errorsFound.push(`Could not parse hostname from connection string [${connection}]`);
+        }
+        if (isNaN(portNum)) {
+            errorsFound.push(`Could not parse port number from connection string [${connection}]`);
+        }
+
+        if (errorsFound.length > 0) {
+            for (let errString of errorsFound) {
+                console.error(errString);
+            }
+            return null;
+        }
+
+        return [hostname, portNum];
+    }
+
+    async onUnknownCommand([command = "unknown"]: string[] = []): Promise<void> {
         if (["q", "quit", "exit"].includes(command?.toLowerCase())) {
             console.info("Goodbye!");
             process.exit(0);
@@ -437,7 +418,7 @@ class ShellCommandServer extends CommandServer {
             });
         });
     }
-    afterEach = this.onStartup
+    afterEach = this.onStartup.bind(this);
 
 }
 
