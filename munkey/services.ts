@@ -116,14 +116,14 @@ class Service {
 class VaultService extends Service {
     private readonly vaultMap: Map<string, PouchDB.Database<DatabaseDocument>>;
     private readonly vaultIdMap: Map<string, string>;
-    private activeVault: string | null;
+    private activeVault: [string | null, string | null];
     private adminService?: AdminService;
 
     constructor(private Vault: DatabaseConstructor<DatabaseDocument>) {
         super();
         this.vaultMap = new Map<string, PouchDB.Database<DatabaseDocument>>();
         this.vaultIdMap = new Map<string, string>();
-        this.activeVault = null;
+        this.activeVault = [null, null];
         this.adminService = null;
     }
 
@@ -137,12 +137,16 @@ class VaultService extends Service {
      * The vault is issued a new, randomly generated UUID on creation.
      * @param {string} vaultId Suggested UUID for the new vault.
      * Recommended only when the vault you are creating already exists.
+     * @param {string} encryptionKey Symmetric key used to encrypt/decrypt the contents of the vault.
      * @returns {string|null} UUID of new (or existing) PouchDB database.
      */
-    public createVault(vaultName: string, vaultId?: string | null): Promise<string | null>
+    public createVault(vaultName: string, vaultId?: string | null, encryptionKey?: string | null): Promise<string | null>
     {
         if (!vaultName) {
             throw new ReferenceError(`Invalid vault name: ${vaultName}`);
+        }
+        if (encryptionKey) {
+            console.log("Using encryption key: ", encryptionKey);
         }
 
         vaultId ??= (this.vaultIdMap.get(vaultName) || null);
@@ -155,7 +159,7 @@ class VaultService extends Service {
             // Vault not found; create it and initialize its schema.
             this.vaultIdMap.set(vaultName, vaultId ??= randomUUID());
             this.vaultMap.set(vaultId, vault = new this.Vault(vaultName));
-            this.activeVault = vaultId;
+            this.activeVault = [vaultName, vaultId];
 
             return vault
                 .get("vault")
@@ -200,7 +204,7 @@ class VaultService extends Service {
         if (vault) {
             this.logger.info("Deleting...");
 
-            this.activeVault = null;
+            this.activeVault = [null, null];
             this.vaultMap.delete(vaultId);
             this.vaultIdMap.delete(vaultName);
             await vault.destroy()
@@ -239,25 +243,31 @@ class VaultService extends Service {
         return this.vaultMap.get(vaultId) || null;
     }
 
-    public setActiveVaultById(vaultId: string): PouchDB.Database<DatabaseDocument> | null {
+    public setActiveVaultById(vaultId: string, vaultName: string = "unknown"): PouchDB.Database<DatabaseDocument> | null {
         const vault = this.vaultMap.get(vaultId) || null;
         if (vault) {
-            this.activeVault = vaultId;
+            this.activeVault = [vaultName, vaultId];
         }
         return vault;
     }
 
     public setActiveVaultByName(vaultName: string): PouchDB.Database<DatabaseDocument> | null {
         const vaultId: string = this.vaultIdMap.get(vaultName) || null;
-        return this.setActiveVaultById(vaultId);
+        return this.setActiveVaultById(vaultId, vaultName);
     }
 
     public getActiveVault(): PouchDB.Database<DatabaseDocument> | null {
-        return this.vaultMap.get(this.activeVault) || null;
+        return this.vaultMap.get(this.getActiveVaultId()) || null;
     }
 
     public getActiveVaultId(): string | null {
-        return this.activeVault;
+        const [vaultName, vaultId] = this.activeVault;
+        return vaultId;
+    }
+
+    public getActiveVaultName(): string | null {
+        const [vaultName] = this.activeVault;
+        return vaultName;
     }
 
     /**

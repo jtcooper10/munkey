@@ -5,12 +5,10 @@
  * @created : 10/17/2021
  */
 
-import { Readable } from "stream";
+import { createInterface } from "readline";
+import {PassThrough, Readable, Writable} from "stream";
 import { PeerIdentityDecl } from "./discovery";
 import { ServiceContainer } from "./services";
-
-type CommandEntry = ((args: string[]) => Promise<void>) | CommandSet;
-type CommandSet = { [command: string]: CommandEntry };
 
 /**
  * Container for managing and dispatching external commands to the application.
@@ -22,11 +20,11 @@ type CommandSet = { [command: string]: CommandEntry };
  */
 abstract class CommandServer {
 
-    protected constructor(private services: ServiceContainer) {
+    protected constructor(protected services: ServiceContainer) {
 
     }
 
-    async onCreateVault(vaultName: string): Promise<void> {
+    async onCreateVault(vaultName: string, encryptionKey: string): Promise<void> {
         console.info(`Creating new vault (${vaultName})`);
 
         if (this.services.vault.getVaultByName(vaultName)) {
@@ -40,7 +38,7 @@ abstract class CommandServer {
         // Step 4: Modify read/update to include an `integrityKey`.
 
         try {
-            const vaultId: string | null = await this.services.vault.createVault(vaultName);
+            const vaultId: string | null = await this.services.vault.createVault(vaultName, null, encryptionKey);
             console.info(`Vault created with ID ${vaultId}`);
         }
         catch (err) {
@@ -203,66 +201,104 @@ abstract class CommandServer {
 
 }
 
+type CommandReadCallback = ((stream: Readable) => Promise<any>) | null;
+type CommandEntry = ((args: string[]) => Promise<CommandReadCallback>) | CommandSet;
+type CommandSet = { [command: string]: CommandEntry };
+
+class SilentTerminal {
+    constructor(
+        private silent: boolean = false,
+        private baseWritable: Writable = process.stdout)
+    {
+
+    }
+
+    public createWritable(): Writable {
+        return new Writable({
+            write: this.write.bind(this),
+        });
+    }
+
+    public setSilent(silent: boolean = true) {
+        this.silent = silent;
+    }
+
+    private write(chunk: any,
+        encoding: BufferEncoding | ((error: Error | null | undefined) => void),
+        cb?: (error: Error | null | undefined) => void): boolean
+    {
+        if (!this.silent) {
+            return this.baseWritable.write(chunk, encoding as BufferEncoding, cb);
+        }
+        cb(null);
+        return false;
+    }
+}
+
 class ShellCommandServer extends CommandServer {
+    private term: SilentTerminal;
 
     constructor(services: ServiceContainer) {
         super(services);
+        this.term = new SilentTerminal();
     }
 
     private commands: CommandSet = {
         "vault": {
-            "new": ([vaultName = null]: string[] = []): Promise<void> => {
+            "new": ([vaultName = null]: string[] = []): Promise<CommandReadCallback> => {
                 if (vaultName === null) {
                     console.error("Missing name for vault creation");
-                    return Promise.resolve();
+                    return Promise.resolve(null);
                 }
-                return this.onCreateVault(vaultName);
+                return Promise.resolve(stream => this
+                    .promptPasswordCreation(stream)
+                    .then(password => this.onCreateVault(vaultName, password)));
             },
 
-            "delete": ([vaultName = null]: string[] = []): Promise<void> => {
+            "delete": ([vaultName = null]: string[] = []): Promise<CommandReadCallback> => {
                 if (vaultName === null) {
                     console.error("Missing name for vault deletion");
-                    return Promise.resolve();
+                    return Promise.resolve(null);
                 }
-                return this.onDeleteVault(vaultName);
+                return this.onDeleteVault(vaultName).then(null);
             },
 
-            "use": ([vaultName = null]: string[] = []): Promise<void> => {
+            "use": ([vaultName = null]: string[] = []): Promise<CommandReadCallback> => {
                 if (vaultName === null) {
                     console.error("Missing name for vault switch");
-                    return Promise.resolve();
+                    return Promise.resolve(null);
                 }
-                return this.onUseVault(vaultName);
+                return this.onUseVault(vaultName).then(null);
             },
 
-            "set": ([entryKey = null, entryData = null]: string[] = []): Promise<void> => {
+            "set": ([entryKey = null, entryData = null]: string[] = []): Promise<CommandReadCallback> => {
                 if (entryKey === null || entryData === null) {
                     console.error(`Missing ${entryKey ? "data" : "key name"} for entry creation`);
-                    return Promise.resolve();
+                    return Promise.resolve(null);
                 }
-                return this.onSetVaultEntry(entryKey, entryData);
+                return this.onSetVaultEntry(entryKey, entryData).then(null);
             },
 
-            "get": ([entryKey = null]: string[]): Promise<void> => {
+            "get": ([entryKey = null]: string[]): Promise<CommandReadCallback> => {
                 if (entryKey === null) {
                     console.error("Missing key name for entry retrieval");
-                    return Promise.resolve();
+                    return Promise.resolve(null);
                 }
-                return this.onGetVaultEntry(entryKey);
+                return this.onGetVaultEntry(entryKey).then(null);
             },
 
             "list": this.onListVaults.bind(this),
 
-            "link": ([linkTarget = null, ...rest]: string[]): Promise<void> => {
+            "link": ([linkTarget = null, ...rest]: string[]): Promise<CommandReadCallback> => {
                 if (linkTarget === null) {
                     console.error("Missing link target for vault link");
-                    return Promise.resolve();
+                    return Promise.resolve(null);
                 }
 
                 const [vaultName, connection]: string[] = linkTarget.split("@");
                 if (vaultName.trim().length === 0) {
                     console.error("Missing vault name from link target");
-                    return Promise.resolve();
+                    return Promise.resolve(null);
                 }
 
                 let hostname: string, portNum: number;
@@ -271,19 +307,19 @@ class ShellCommandServer extends CommandServer {
                 }
                 catch (err) {
                     console.error("Failed to parse connection string");
-                    return Promise.resolve();
+                    return Promise.resolve(null);
                 }
 
                 const [subCommand = null, subArg = null]: (string | null)[] = rest;
                 if (subCommand?.toLowerCase() === "as") {
                     if (subArg === null) {
                         console.error("Missing local nickname for vault link");
-                        return Promise.resolve();
+                        return Promise.resolve(null);
                     }
-                    return this.onVaultLink(hostname, portNum, vaultName, subArg);
+                    return this.onVaultLink(hostname, portNum, vaultName, subArg).then(null);
                 }
 
-                return this.onVaultLink(hostname, portNum, vaultName);
+                return this.onVaultLink(hostname, portNum, vaultName).then(null);
             },
         },
         "link": {
@@ -291,17 +327,17 @@ class ShellCommandServer extends CommandServer {
             "down": this.onLinkDown.bind(this),
         },
         "peer": {
-            "sync": ([peerId = null]: string[] = []): Promise<void> => {
+            "sync": ([peerId = null]: string[] = []): Promise<CommandReadCallback> => {
                 if (peerId === null) {
                     console.error("Missing peer id for peer sync");
-                    return Promise.resolve();
+                    return Promise.resolve(null);
                 }
-                return this.onPeerSync(peerId);
+                return this.onPeerSync(peerId).then(null);
             },
-            "link": ([connection = null]: string[] = []): Promise<void> => {
+            "link": ([connection = null]: string[] = []): Promise<CommandReadCallback> => {
                 if (connection === null) {
                     console.error("Missing connection string for peer link");
-                    return Promise.resolve();
+                    return Promise.resolve(null);
                 }
 
                 let hostname: string, portNum: number;
@@ -310,10 +346,10 @@ class ShellCommandServer extends CommandServer {
                 }
                 catch (err) {
                     console.error("Failed to parse host string");
-                    return Promise.resolve();
+                    return Promise.resolve(null);
                 }
 
-                return this.onPeerLink(hostname, portNum);
+                return this.onPeerLink(hostname, portNum).then(null);
             },
             "list": this.onPeerList.bind(this),
         }
@@ -329,25 +365,47 @@ class ShellCommandServer extends CommandServer {
      * @returns Promise which resolves once the Readable stream has been closed.
      */
     public async useStream(stream: Readable): Promise<void> {
-        await this.onStartup();
+        const commandStream = new PassThrough();
+        stream.pipe(commandStream);
+        const commandInterface = createInterface({
+            input: commandStream,
+            output: this.term.createWritable(),
+            terminal: true,
+            prompt: `(${this.services.vault.getActiveVaultName() ?? "mkey"}) % `,
+        });
 
-        return new Promise((resolve, reject) => {
-            stream.on("data", async (chunk: Buffer) => {
-                const args: string[] = chunk.toString()
-                    .split(/\s+/g)
-                    .filter(arg => arg.length > 0);
-                await this.parseCommand(args);
-                this.afterEach();
-            });
+        commandInterface.prompt();
+        await new Promise<void>((resolve, reject) => {
+            commandInterface
+                .on("line", async input => {
+                    const args: string[] = input
+                        .trim()
+                        .split(/\s+/g)
+                        .filter(arg => arg.length > 0);
 
-            stream.on("end", function() {
-                console.log("Reached end of stream.");
-                resolve();
-            });
-
-            stream.on("error", function(err: Error) {
-                reject(err);
-            });
+                    await this.parseCommand(args)
+                        .then(async possiblyCallback => {
+                            if (!possiblyCallback) {
+                                return;
+                            }
+                            const sessionStream = new PassThrough();
+                            stream.unpipe(commandStream);
+                            stream.pipe(sessionStream);
+                            await possiblyCallback(sessionStream);
+                            stream.unpipe(sessionStream);
+                            stream.pipe(commandStream);
+                        })
+                        .catch(err => console.error(err));
+                    commandInterface.setPrompt(`(${this.services.vault.getActiveVaultName() ?? "mkey"}) % `);
+                    commandInterface.prompt();
+                })
+                .on("close", function() {
+                    resolve();
+                })
+                .on("error", function(err: Error) {
+                    console.error("Ooops!");
+                    reject(err);
+                });
         });
     }
 
@@ -358,7 +416,7 @@ class ShellCommandServer extends CommandServer {
      * I.e., `vault new vaultname` -> ["new", "vaultname"]
      * @returns Promise corresponding to the given vault command.
      */
-    private parseCommand(args: string[]): Promise<void> {
+    private parseCommand(args: string[]): Promise<CommandReadCallback> {
         let command: string,
             commandArgs: string[] = args,
             forward: CommandEntry = this.commands;
@@ -369,7 +427,7 @@ class ShellCommandServer extends CommandServer {
 
         return forward && forward instanceof Function
             ? forward(commandArgs)
-            : this.onUnknownCommand(args);
+            : this.onUnknownCommand(args).then(null);
     }
 
     private resolveHost(connection: string): [string, number] | null {
@@ -419,6 +477,34 @@ class ShellCommandServer extends CommandServer {
         });
     }
     afterEach = this.onStartup.bind(this);
+
+    private async promptPasswordCreation(stream: Readable): Promise<string | null> {
+        const passwordInterface = createInterface({
+            input: stream,
+            output: this.term.createWritable(),
+            terminal: true,
+        });
+
+        process.stdout.write("Enter a password: ");
+        return new Promise<string | null>((resolve, reject) => {
+                this.term.setSilent(true);
+                passwordInterface
+                    .on("close", reject)
+                    .on("error", reject)
+                    .on("pause", reject)
+                    .on("SIGINT", reject)
+                    .on("line", answer => resolve(answer));
+            })
+            .catch(err => {
+                console.error("Error during password get: ", err);
+                return null;
+            })
+            .finally(() => {
+                process.stdout.write("\n");
+                passwordInterface.close();
+                this.term.setSilent(false)
+            });
+    }
 
 }
 
