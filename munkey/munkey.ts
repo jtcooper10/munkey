@@ -26,7 +26,7 @@ import path from "path";
 import PouchDB from "pouchdb";
 import MemDown from "memdown";
 import winston from "winston";
-import {ArgumentParser, Action, Namespace } from "argparse";
+import { ArgumentParser, Action, Namespace } from "argparse";
 import {
     AdminDatabaseDocument,
     AdminService,
@@ -46,7 +46,7 @@ import {
     ConnectionService,
     WebService,
 } from "./services";
-import { createCipheriv, randomFill } from "crypto";
+import { createCipheriv, createDecipheriv, randomFill } from "crypto";
 
 const uniformPrint = winston.format.printf(function(
     info: winston.Logform.TransformableInfo & { label: string, timestamp: string }): string
@@ -192,14 +192,17 @@ generateNewIdentity()
                 if (typeof callback === "function") {
                     // It's callback-based.
                     randomFill(Buffer.alloc(16), (err, fill) => {
-                        const cipher = createCipheriv("aes-192-cbc", this.encryptionKey, fill);
-                        attachment = Buffer.concat([ cipher.update(attachment), cipher.final() ]);
-                        storedProcedures.putAttachment.call(this,
-                            ...outputArgs,
-                            attachment,
-                            attachmentType,
-                            callback,
-                            ...remainingArgs);
+                        if (err) throw err;
+                        else {
+                            const cipher = createCipheriv("aes-192-cbc", this.encryptionKey, fill);
+                            attachment = Buffer.concat([ cipher.update(attachment), cipher.final() ]);
+                            storedProcedures.putAttachment.call(this,
+                                ...outputArgs,
+                                attachment,
+                                attachmentType,
+                                callback,
+                                ...remainingArgs);
+                        }
                     });
                 }
                 else {
@@ -210,17 +213,40 @@ generateNewIdentity()
                                 else {
                                     resolve(fill);
                                 }
-                            })
+                            });
                         })
                         .then(fill => {
                             const cipher = createCipheriv("aes-192-cbc", this.encryptionKey, fill);
-                            attachment = Buffer.concat([ cipher.update(attachment), cipher.final() ]);
+                            attachment = Buffer.concat([ fill, cipher.update(attachment), cipher.final() ]);
                             return storedProcedures.putAttachment.call(this,
                                 ...outputArgs,
                                 attachment,
                                 attachmentType,
                                 callback,
                                 ...remainingArgs);
+                        });
+                }
+            },
+            getAttachment(...args) {
+                if (!this.hasOwnProperty("encryptionKey")) {
+                    return storedProcedures.getAttachment.call(this, ...args);
+                }
+
+                let callback = args[3];
+                if (typeof callback === "function") {
+                    // It's callback-based.
+                    throw new Error("Callback-based encryption intercept not implemented; please use Promise API");
+                }
+                else {
+                    // It's promise-based.
+                    return storedProcedures.getAttachment
+                        .call(this, ...args)
+                        .then((result: Buffer) => {
+                            const fill = result.slice(0, 16);
+                            const attachment = result.slice(16);
+                            const decipher = createDecipheriv("aes-192-cbc", this.encryptionKey, fill);
+
+                            return Buffer.concat([ decipher.update(attachment), decipher.final() ]);
                         });
                 }
             },

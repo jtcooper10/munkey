@@ -43,6 +43,9 @@ export interface DatabasePluginAttachment {
         attachment: Buffer | string, // Either attachment or type
         attachmentType: string | ((err: Error | null, result: PouchDB.Core.Response | null) => void),
         callback?: (err: Error | null, result: PouchDB.Core.Response | null) => void  ) => any;
+    getAttachment: (docId: string, attachmentId: string,
+        options: {rev?: PouchDB.Core.RevisionId | undefined},
+        callback: (error: Error | null, result: Blob | Buffer | null) => void) => any;
     useEncryption: (encryptionKey: Buffer) => any;
 
     encryptionKey?: Buffer;
