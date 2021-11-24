@@ -154,7 +154,7 @@ generateNewIdentity()
 
         // Plugin options are created separately so that we can do full type-checking (see call to .plugin)
         const pluginOptions: DatabasePluginAttachment = {
-            putAttachment(...args) {
+            putEncryptedAttachment(...args) {
                 if (!this.hasOwnProperty("encryptionKey")) {
                     return storedProcedures.putAttachment.call(this, ...args);
                 }
@@ -191,19 +191,7 @@ generateNewIdentity()
                 // Determine if it's a promise-based or callback-based call.
                 if (typeof callback === "function") {
                     // It's callback-based.
-                    randomFill(Buffer.alloc(16), (err, fill) => {
-                        if (err) throw err;
-                        else {
-                            const cipher = createCipheriv("aes-192-cbc", this.encryptionKey, fill);
-                            attachment = Buffer.concat([ cipher.update(attachment), cipher.final() ]);
-                            storedProcedures.putAttachment.call(this,
-                                ...outputArgs,
-                                attachment,
-                                attachmentType,
-                                callback,
-                                ...remainingArgs);
-                        }
-                    });
+                    throw new Error("Callback-based .putAttachment() proxy not implemented, please use Promise API");
                 }
                 else {
                     // It's promise-based.
@@ -227,7 +215,7 @@ generateNewIdentity()
                         });
                 }
             },
-            getAttachment(...args) {
+            getEncryptedAttachment(...args) {
                 if (!this.hasOwnProperty("encryptionKey")) {
                     return storedProcedures.getAttachment.call(this, ...args);
                 }
@@ -245,7 +233,6 @@ generateNewIdentity()
                             const fill = result.slice(0, 16);
                             const attachment = result.slice(16);
                             const decipher = createDecipheriv("aes-192-cbc", this.encryptionKey, fill);
-
                             return Buffer.concat([ decipher.update(attachment), decipher.final() ]);
                         });
                 }

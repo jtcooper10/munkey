@@ -36,16 +36,16 @@ interface DatabaseDocument {
 }
 
 export interface DatabasePluginAttachment {
-    putAttachment: (
+    putEncryptedAttachment: (
         docId: string,
         attachmentId: string,
         revId: string | Buffer, // Either revId or attachment
         attachment: Buffer | string, // Either attachment or type
-        attachmentType: string | ((err: Error | null, result: PouchDB.Core.Response | null) => void),
+        attachmentType?: string | ((err: Error | null, result: PouchDB.Core.Response | null) => void),
         callback?: (err: Error | null, result: PouchDB.Core.Response | null) => void  ) => any;
-    getAttachment: (docId: string, attachmentId: string,
-        options: {rev?: PouchDB.Core.RevisionId | undefined},
-        callback: (error: Error | null, result: Blob | Buffer | null) => void) => any;
+    getEncryptedAttachment: (docId: string, attachmentId: string,
+        options?: {rev?: PouchDB.Core.RevisionId | undefined},
+        callback?: (error: Error | null, result: Blob | Buffer | null) => void) => any;
     useEncryption: (encryptionKey: Buffer) => any;
 
     encryptionKey?: Buffer;
@@ -188,7 +188,7 @@ class VaultService extends Service {
                         this.logger.info("Database load failed; creating new instance: id %s", vaultId);
                         const blankAttachment = Buffer.from(JSON.stringify({}));
                         return vault
-                            .putAttachment("vault", "passwords.json", blankAttachment, "text/plain")
+                            .putEncryptedAttachment("vault", "passwords.json", blankAttachment, "text/plain")
                             .then(() => {
                                 this.logger.info("Database created successfully: id %s", vaultId);
                                 return this.adminService?.recordVaultCreation(vaultName, vaultId);
@@ -253,6 +253,17 @@ class VaultService extends Service {
     public getVaultByName(vaultName: string): VaultDB | null {
         let vaultId: string | null = this.vaultIdMap.get(vaultName) || null;
         return vaultId && this.getVaultById(vaultId);
+    }
+
+    public async getVaultEntry(vaultId: string, entryKey: string): Promise<string | null> {
+        const vault = this.getVaultById(vaultId) ?? null;
+        const entries: { [key: string]: string } = await vault?.getEncryptedAttachment("vault", "passwords.json")
+            .then((attachment: Buffer) => JSON.parse(attachment.toString()))
+            .catch(err => {
+                console.error(err);
+                return null;
+            }) ?? {};
+        return entries[entryKey] ?? null;
     }
 
     public getVaultById(vaultId: string): VaultDB | null {

@@ -25,6 +25,17 @@ abstract class CommandServer {
 
     }
 
+    public static createDerivedKey(password: string, salt: string): Promise<Buffer> {
+        return new Promise<Buffer>(function(resolve, reject) {
+            pbkdf2(Buffer.from(password), Buffer.from(salt), 64000, 24, "sha256", (err, derivedKey) => {
+                if (err) reject(err);
+                else {
+                    resolve(derivedKey);
+                }
+            });
+        });
+    }
+
     async onCreateVault(vaultName: string, encryptionKey: Buffer): Promise<void> {
         console.info(`Creating new vault (${vaultName})`);
 
@@ -100,24 +111,20 @@ abstract class CommandServer {
         }
 
         const passwordDoc: { [key: string]: string } = await vault
-            .getAttachment("vault", "passwords.json")
+            .getEncryptedAttachment("vault", "passwords.json")
             .then((attachment: Buffer) => JSON.parse(attachment.toString()));
         passwordDoc[entryKey] = data;
-        await vault.putAttachment("vault", "passwords.json", _rev, Buffer.from(JSON.stringify(passwordDoc)), "text/plain");
+        await vault.putEncryptedAttachment("vault", "passwords.json", _rev, Buffer.from(JSON.stringify(passwordDoc)), "text/plain");
     }
 
     async onGetVaultEntry(entryKey: string): Promise<void> {
-        const vault = this.services.vault.getActiveVault();
-        if (vault === null) {
+        const vaultId: string = this.services.vault.getActiveVaultId();
+        if (vaultId === null) {
             console.error("No vault selected; please select or create a vault");
             return Promise.resolve();
         }
 
-        const entries: { [ket: string]: string } = await vault
-            .getAttachment("vault", "passwords.json")
-            .then((attachment: Buffer) => JSON.parse(attachment.toString()));
-
-        const data = entries[entryKey];
+        const data: string | null = await this.services.vault.getVaultEntry(vaultId, entryKey);
         if (!data) {
             console.error("Vault entry not found");
         }
@@ -128,7 +135,8 @@ abstract class CommandServer {
 
     async onVaultLink(
         hostname: string, portNum: number,
-        vaultName: string, vaultNickname: string = vaultName): Promise<void>
+        vaultName: string, vaultNickname: string = vaultName,
+        derivedKey: Buffer): Promise<void>
     {
         console.info(`Connecting with vault ${vaultName}@${hostname}:${portNum}`);
 
@@ -149,7 +157,7 @@ abstract class CommandServer {
         let { vaultId = null } = activeDevice?.vaults.find(vault => vault.nickname === vaultName) ?? {};
         if (vaultId) {
             try {
-                vaultId = await this.services.vault.createVault(vaultNickname, vaultId);
+                vaultId = await this.services.vault.createVault(vaultNickname, vaultId, derivedKey);
                 let localVault = this.services.vault.getVaultById(vaultId);
                 let remoteConn = this.services.connection
                     .publishDatabaseConnection({ hostname, portNum }, vaultName, vaultId, localVault);
@@ -311,16 +319,20 @@ class ShellCommandServer extends CommandServer {
                     return Promise.resolve(null);
                 }
 
-                const [subCommand = null, subArg = null]: (string | null)[] = rest;
-                if (subCommand?.toLowerCase() === "as") {
-                    if (subArg === null) {
-                        console.error("Missing local nickname for vault link");
-                        return Promise.resolve(null);
-                    }
-                    return this.onVaultLink(hostname, portNum, vaultName, subArg).then(null);
+                const [subCommand = null, subArg]: (string | null)[] = rest;
+                if (subCommand?.toLowerCase() === "as" && !subArg) {
+                    console.error("Missing local nickname for vault link");
+                    return Promise.resolve(null);
                 }
 
-                return this.onVaultLink(hostname, portNum, vaultName).then(null);
+                return Promise.resolve(async (terminal: Interface): Promise<void> => {
+                    const derivedKey = await this.promptPasswordCreation(terminal);
+                    if (!derivedKey) {
+                        console.error("Bad password");
+                        return null;
+                    }
+                    await this.onVaultLink(hostname, portNum, vaultName, subArg, derivedKey);
+                });
             },
         },
         "link": {
@@ -486,14 +498,7 @@ class ShellCommandServer extends CommandServer {
             })
             .then(password => {
                 // TODO: replace constant salt with a randomly-generated, stored one.
-                return new Promise<Buffer>(function(resolve, reject) {
-                    pbkdf2(Buffer.from(password), Buffer.from("munkey-salt"), 64000, 24, "sha256", (err, derivedKey) => {
-                        if (err) reject(err);
-                        else {
-                            resolve(derivedKey);
-                        }
-                    });
-                });
+                return CommandServer.createDerivedKey(password, "munkey-salt");
             })
             .catch(err => {
                 console.error("Error during password get: ", err);
