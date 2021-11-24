@@ -487,7 +487,7 @@ class ShellCommandServer extends CommandServer {
             .then(password => {
                 // TODO: replace constant salt with a randomly-generated, stored one.
                 return new Promise<Buffer>(function(resolve, reject) {
-                    pbkdf2(Buffer.from(password), Buffer.from("munkey-salt"), 64000, 64, "sha512", (err, derivedKey) => {
+                    pbkdf2(Buffer.from(password), Buffer.from("munkey-salt"), 64000, 24, "sha256", (err, derivedKey) => {
                         if (err) reject(err);
                         else {
                             resolve(derivedKey);
