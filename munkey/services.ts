@@ -178,7 +178,7 @@ class VaultService extends Service {
             }
 
             return vault
-                .get("vault")
+                .getEncryptedAttachment("vault", "passwords.json")
                 .then(() => {
                     this.logger.info("Database loaded successfully: id %s", vaultId);
                     return vaultId;
@@ -260,7 +260,12 @@ class VaultService extends Service {
         const entries: { [key: string]: string } = await vault?.getEncryptedAttachment("vault", "passwords.json")
             .then((attachment: Buffer) => JSON.parse(attachment.toString()))
             .catch(err => {
-                console.error(err);
+                if (err.code === "ERR_OSSL_EVP_BAD_DECRYPT") {
+                    this.logger.warn("Could not decrypt database contents");
+                }
+                else {
+                    this.logger.error("An error occurred while decrypting database contents: %s", err.code);
+                }
                 return null;
             }) ?? {};
         return entries[entryKey] ?? null;

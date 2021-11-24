@@ -67,6 +67,14 @@ abstract class CommandServer {
         this.services.vault.setActiveVaultByName(vaultName);
     }
 
+    async onVaultLogin(vaultName: string, encryptionKey: Buffer) {
+        const vault = this.services.vault.getVaultByName(vaultName);
+        if (!vault) {
+            return console.error(`Cannot login to vault ${vaultName} (does not exist)`);
+        }
+        vault?.useEncryption(encryptionKey);
+    }
+
     async onDeleteVault(vaultName: string): Promise<void> {
         if (!this.services.vault.getVaultByName(vaultName)) {
             return console.error(`Cannot delete vault ${vaultName} (does not exist)`);
@@ -159,9 +167,9 @@ abstract class CommandServer {
             try {
                 vaultId = await this.services.vault.createVault(vaultNickname, vaultId, derivedKey);
                 let localVault = this.services.vault.getVaultById(vaultId);
-                let remoteConn = this.services.connection
-                    .publishDatabaseConnection({ hostname, portNum }, vaultName, vaultId, localVault);
-                remoteConn.catch(err => console.error(err));
+                this.services.connection
+                    .publishDatabaseConnection({ hostname, portNum }, vaultName, vaultId, localVault)
+                    .catch(err => console.error(err));
             }
             catch (err) {
                 console.error("Failed to create local vault: ", err.message);
@@ -262,6 +270,16 @@ class ShellCommandServer extends CommandServer {
                 return Promise.resolve(stream => this
                     .promptPasswordCreation(stream)
                     .then(password => this.onCreateVault(vaultName, password)));
+            },
+
+            "login": ([vaultName = null]: string[] = []): Promise<CommandReadCallback> => {
+                if (vaultName === null) {
+                    console.error("Missing name for vault login");
+                    return Promise.resolve(null);
+                }
+                return Promise.resolve(stream => this
+                    .promptPasswordCreation(stream)
+                    .then(password => this.onVaultLogin(vaultName, password)));
             },
 
             "delete": ([vaultName = null]: string[] = []): Promise<CommandReadCallback> => {
@@ -403,6 +421,7 @@ class ShellCommandServer extends CommandServer {
                 .catch(err => console.error(err));
 
             commandInterface.addListener("line", commandParseHandler);
+            commandInterface.setPrompt(`(${this.services.vault.getActiveVaultName() ?? "mkey"}) % `);
             commandInterface.prompt();
         }.bind(this);
 
