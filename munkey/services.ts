@@ -36,7 +36,16 @@ interface DatabaseDocument {
 }
 
 export interface DatabasePluginAttachment {
-    encrypt: (...args: any[]) => any;
+    putAttachment: (
+        docId: string,
+        attachmentId: string,
+        revId: string | Buffer, // Either revId or attachment
+        attachment: Buffer | string, // Either attachment or type
+        attachmentType: string | ((err: Error | null, result: PouchDB.Core.Response | null) => void),
+        callback?: (err: Error | null, result: PouchDB.Core.Response | null) => void  ) => any;
+    useEncryption: (encryptionKey: Buffer) => any;
+
+    encryptionKey?: Buffer;
 }
 
 type VaultDB = PouchDB.Database<DatabaseDocument> & DatabasePluginAttachment;
@@ -143,17 +152,14 @@ class VaultService extends Service {
      * @param {string} encryptionKey Symmetric key used to encrypt/decrypt the contents of the vault.
      * @returns {string|null} UUID of new (or existing) PouchDB database.
      */
-    public createVault(vaultName: string, vaultId?: string | null, encryptionKey?: string | null): Promise<string | null>
+    public createVault(vaultName: string, vaultId?: string | null, encryptionKey?: Buffer | null): Promise<string | null>
     {
         if (!vaultName) {
             throw new ReferenceError(`Invalid vault name: ${vaultName}`);
         }
-        if (encryptionKey) {
-            console.log("Using encryption key: ", encryptionKey);
-        }
 
         vaultId ??= (this.vaultIdMap.get(vaultName) || null);
-        let vault: PouchDB.Database<DatabaseDocument> | null = vaultId && this.vaultMap.get(vaultId) || null;
+        let vault: VaultDB | null = vaultId && this.vaultMap.get(vaultId) || null;
 
         if (this.vaultIdMap.get(vaultName) && this.vaultIdMap.get(vaultName) !== vaultId) {
             throw new Error(`Name conflict; local nickname ${vaultName} already exists`);
@@ -163,6 +169,10 @@ class VaultService extends Service {
             this.vaultIdMap.set(vaultName, vaultId ??= randomUUID());
             this.vaultMap.set(vaultId, vault = new this.Vault(vaultName));
             this.activeVault = [vaultName, vaultId];
+
+            if (encryptionKey) {
+                vault.useEncryption(encryptionKey);
+            }
 
             return vault
                 .get("vault")

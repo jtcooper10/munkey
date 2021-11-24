@@ -5,6 +5,7 @@
  * @created : 10/17/2021
  */
 
+import { pbkdf2 } from "crypto";
 import { createInterface } from "readline";
 import {PassThrough, Readable, Writable} from "stream";
 import { PeerIdentityDecl } from "./discovery";
@@ -24,7 +25,7 @@ abstract class CommandServer {
 
     }
 
-    async onCreateVault(vaultName: string, encryptionKey: string): Promise<void> {
+    async onCreateVault(vaultName: string, encryptionKey: Buffer): Promise<void> {
         console.info(`Creating new vault (${vaultName})`);
 
         if (this.services.vault.getVaultByName(vaultName)) {
@@ -478,7 +479,7 @@ class ShellCommandServer extends CommandServer {
     }
     afterEach = this.onStartup.bind(this);
 
-    private async promptPasswordCreation(stream: Readable): Promise<string | null> {
+    private async promptPasswordCreation(stream: Readable): Promise<Buffer | null> {
         const passwordInterface = createInterface({
             input: stream,
             output: this.term.createWritable(),
@@ -494,6 +495,17 @@ class ShellCommandServer extends CommandServer {
                     .on("pause", reject)
                     .on("SIGINT", reject)
                     .on("line", answer => resolve(answer));
+            })
+            .then(password => {
+                // TODO: replace constant salt with a randomly-generated, stored one.
+                return new Promise<Buffer>(function(resolve, reject) {
+                    pbkdf2(Buffer.from(password), Buffer.from("munkey-salt"), 64000, 64, "sha512", (err, derivedKey) => {
+                        if (err) reject(err);
+                        else {
+                            resolve(derivedKey);
+                        }
+                    });
+                });
             })
             .catch(err => {
                 console.error("Error during password get: ", err);

@@ -54,7 +54,6 @@ const uniformPrint = winston.format.printf(function(
     return `[${level}::${label}] ${message}`;
 });
 
-
 const addUniformLogger = function(serviceName: string): winston.Logger {
     winston.loggers.add(serviceName, {
         format: winston.format.combine(
@@ -147,11 +146,66 @@ generateNewIdentity()
         const rootPath = args.root_dir;
         const portNum = args.port;
 
+        const storedProcedures = {
+            putAttachment: PouchDB.prototype.putAttachment,
+        };
+
+        // Plugin options are created separately so that we can do full type-checking (see call to .plugin)
+        const pluginOptions: DatabasePluginAttachment = {
+            putAttachment(...args) {
+                if (this.hasOwnProperty("encryptionKey")) {
+                    // PouchDB's function signatures are strange...
+                    // The "optional" argument is revId, which is right in the MIDDLE of the call signature...
+                    // So, depending on if this "optional" arg is provided, the attachment is either
+                    // `attachment` (if provided) or `revId` (if not provided).
+                    let [
+                        docId,
+                        attachmentId,
+                        revId,          // revId | attachment
+                        attachment,     // attachment | attachmentType
+                        attachmentType, // attachmentType | callback | none
+                        ...rest
+                    ] = args;
+                    let actualAttachment;
+
+                    // 3 cases:
+                    // Case 1: Caller provided no revId. `revId` is actually an attachment.
+                    //   1a: `attachmentType` is a function, and `callback` is undefined.
+                    //   1b: `attachmentType` is also undefined (promise-based).
+                    // Case 2: Caller provided a revId, `attachmentType` is a string: `attachment` is an attachment.
+                    if (["function", "undefined"].includes(typeof (attachmentType ?? undefined))) {
+                        actualAttachment = revId;
+                    }
+                    else if (typeof attachmentType === "string") {
+                        actualAttachment = attachment;
+                    }
+
+                    // TODO: now that we have our attachment selected, encrypt it!
+                    // Use `createCipheriv`: https://nodejs.org/dist/latest-v16.x/docs/api/crypto.html#class-cipher
+                    // At the time of writing I've gone 40 hours without sleep, and I'm starting to feel it....
+                    console.log("ATTACHMENT: ", actualAttachment.toString("hex"));
+
+                    return storedProcedures.putAttachment.call(this,
+                        docId,
+                        attachmentId,
+                        revId,
+                        actualAttachment,
+                        attachmentType,
+                        ...rest);
+                }
+                return storedProcedures.putAttachment.call(this, ...args);
+            },
+            useEncryption(encryptionKey: Buffer) {
+                this.encryptionKey = encryptionKey;
+            },
+        };
+
         const LocalDB = configurePlugins<DatabaseDocument, DatabasePluginAttachment>(
             {
                 prefix: rootPath + path.sep + "munkey" + path.sep,
                 db: args.in_memory ? MemDown : undefined,
             } as PouchDB.Configuration.DatabaseConfiguration,
+            pluginOptions,
         );
         const AdminDB = configurePlugins<AdminDatabaseDocument, {}>(
             {
