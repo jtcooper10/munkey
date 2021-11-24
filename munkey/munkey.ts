@@ -28,9 +28,11 @@ import MemDown from "memdown";
 import winston from "winston";
 import {ArgumentParser, Action, Namespace } from "argparse";
 import {
+    AdminDatabaseDocument,
     AdminService,
     DatabaseConstructor,
-    DatabaseDocument
+    DatabaseDocument,
+    DatabasePluginAttachment,
 } from "./services";
 
 import { ShellCommandServer } from "./command";
@@ -77,6 +79,19 @@ const configureLogging = function(services: ServiceContainer): typeof services {
 
     return services;
 };
+
+const configurePlugins = function<D, P>(
+    options: PouchDB.Configuration.DatabaseConfiguration,
+    plugins?: P): DatabaseConstructor<PouchDB.Database<D> & P, D>
+{
+    // TODO: rigorous type assertions to make this squeaky clean.
+    // The main reason this is so ugly right now is because PouchDB's types are pretty wonktacular.
+    if (plugins) {
+        PouchDB.plugin(<unknown> plugins as PouchDB.Plugin);
+    }
+    return PouchDB
+        .defaults(options) as DatabaseConstructor<PouchDB.Database<D> & P, D>;
+}
 
 interface CommandLineArgs {
     root_dir: string;
@@ -132,16 +147,18 @@ generateNewIdentity()
         const rootPath = args.root_dir;
         const portNum = args.port;
 
-        const LocalDB: DatabaseConstructor<DatabaseDocument> = PouchDB.defaults(
-            <PouchDB.Configuration.DatabaseConfiguration> {
+        const LocalDB = configurePlugins<DatabaseDocument, DatabasePluginAttachment>(
+            {
                 prefix: rootPath + path.sep + "munkey" + path.sep,
                 db: args.in_memory ? MemDown : undefined,
-            });
-        const AdminDB: DatabaseConstructor<DatabaseDocument> = PouchDB.defaults(
-            <PouchDB.Configuration.DatabaseConfiguration> {
+            } as PouchDB.Configuration.DatabaseConfiguration,
+        );
+        const AdminDB = configurePlugins<AdminDatabaseDocument, {}>(
+            {
                 prefix: rootPath + path.sep + "admin" + path.sep,
                 db: args.in_memory ? MemDown : undefined,
-            });
+            } as PouchDB.Configuration.DatabaseConfiguration,
+        );
 
         return Promise.resolve(configureLogging({
                 vault: new VaultService(LocalDB),
