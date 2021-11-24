@@ -6,8 +6,8 @@
  */
 
 import { pbkdf2 } from "crypto";
-import { createInterface } from "readline";
-import {PassThrough, Readable, Writable} from "stream";
+import {createInterface, Interface} from "readline";
+import { Readable, Writable } from "stream";
 import { PeerIdentityDecl } from "./discovery";
 import { ServiceContainer } from "./services";
 
@@ -202,7 +202,7 @@ abstract class CommandServer {
 
 }
 
-type CommandReadCallback = ((stream: Readable) => Promise<any>) | null;
+type CommandReadCallback = ((sessionInterface: Interface) => Promise<any>) | null;
 type CommandEntry = ((args: string[]) => Promise<CommandReadCallback>) | CommandSet;
 type CommandSet = { [command: string]: CommandEntry };
 
@@ -241,7 +241,7 @@ class ShellCommandServer extends CommandServer {
 
     constructor(services: ServiceContainer) {
         super(services);
-        this.term = new SilentTerminal();
+        this.term = new SilentTerminal(false);
     }
 
     private commands: CommandSet = {
@@ -366,48 +366,47 @@ class ShellCommandServer extends CommandServer {
      * @returns Promise which resolves once the Readable stream has been closed.
      */
     public async useStream(stream: Readable): Promise<void> {
-        const commandStream = new PassThrough();
-        stream.pipe(commandStream);
         const commandInterface = createInterface({
-            input: commandStream,
+            input: stream,
             output: this.term.createWritable(),
             terminal: true,
             prompt: `(${this.services.vault.getActiveVaultName() ?? "mkey"}) % `,
         });
 
-        commandInterface.prompt();
-        await new Promise<void>((resolve, reject) => {
-            commandInterface
-                .on("line", async input => {
-                    const args: string[] = input
-                        .trim()
-                        .split(/\s+/g)
-                        .filter(arg => arg.length > 0);
+        const commandParseHandler = async function(input: string) {
+            commandInterface.removeListener("line", commandParseHandler);
 
-                    await this.parseCommand(args)
-                        .then(async possiblyCallback => {
-                            if (!possiblyCallback) {
-                                return;
-                            }
-                            const sessionStream = new PassThrough();
-                            stream.unpipe(commandStream);
-                            stream.pipe(sessionStream);
-                            await possiblyCallback(sessionStream);
-                            stream.unpipe(sessionStream);
-                            stream.pipe(commandStream);
-                        })
-                        .catch(err => console.error(err));
-                    commandInterface.setPrompt(`(${this.services.vault.getActiveVaultName() ?? "mkey"}) % `);
-                    commandInterface.prompt();
+            const args: string[] = input
+                            .trim()
+                            .split(/\s+/g)
+                            .filter(arg => arg.length > 0);
+
+            await this.parseCommand(args)
+                .then(async possiblyCallback => {
+                    if (!possiblyCallback) {
+                        return;
+                    }
+                    await possiblyCallback(commandInterface);
                 })
-                .on("close", function() {
-                    resolve();
-                })
-                .on("error", function(err: Error) {
-                    console.error("Ooops!");
-                    reject(err);
-                });
-        });
+                .catch(err => console.error(err));
+
+            commandInterface.addListener("line", commandParseHandler);
+            commandInterface.prompt();
+        }.bind(this);
+
+        commandInterface.prompt();
+        await new Promise<void>(async (resolve, reject) => {
+                commandInterface
+                    .on("line", commandParseHandler)
+                    .on("pause", resolve)
+                    .on("error", reject);
+            })
+            .catch(err => {
+                if (err) {
+                    console.error("Error:", err);
+                }
+            });
+        commandInterface.close();
     }
 
     /**
@@ -479,22 +478,11 @@ class ShellCommandServer extends CommandServer {
     }
     afterEach = this.onStartup.bind(this);
 
-    private async promptPasswordCreation(stream: Readable): Promise<Buffer | null> {
-        const passwordInterface = createInterface({
-            input: stream,
-            output: this.term.createWritable(),
-            terminal: true,
-        });
-
+    private async promptPasswordCreation(terminal: Interface): Promise<Buffer | null> {
         process.stdout.write("Enter a password: ");
-        return new Promise<string | null>((resolve, reject) => {
+        return new Promise<string | null>((resolve) => {
                 this.term.setSilent(true);
-                passwordInterface
-                    .on("close", reject)
-                    .on("error", reject)
-                    .on("pause", reject)
-                    .on("SIGINT", reject)
-                    .on("line", answer => resolve(answer));
+                terminal.once("line", answer => resolve(answer));
             })
             .then(password => {
                 // TODO: replace constant salt with a randomly-generated, stored one.
@@ -513,7 +501,6 @@ class ShellCommandServer extends CommandServer {
             })
             .finally(() => {
                 process.stdout.write("\n");
-                passwordInterface.close();
                 this.term.setSilent(false)
             });
     }
