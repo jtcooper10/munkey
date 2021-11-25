@@ -145,19 +145,26 @@ async function main(services: ServiceContainer): Promise<void> {
         .then(() => process.exit(0));
 }
 
-generateNewIdentity()
-    .then(id => {
-        const args = parseCommandLineArgs(process.argv.slice(2));
-        const {
-            root_dir: rootPath,
-            port: portNum,
-            discovery_port: discoveryPortNum,
-        } = args;
+const commandLineArgs = parseCommandLineArgs(process.argv.slice(2));
+
+generateNewIdentity(commandLineArgs.root_dir)
+    .then(({ uniqueId, ...keyPair }) => {
+        // IMPORTANT: This line is to allow for self-signed certificates.
+        // Since we use TLS only for establishing an encrypted connection, not for validation,
+        // there is no need to validate the source. So, we set strict TLS to false.
+        process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0";
 
         const storedProcedures = {
             putAttachment: PouchDB.prototype.putAttachment,
             getAttachment: PouchDB.prototype.getAttachment,
         };
+
+        const {
+            root_dir: rootPath,
+            port: portNum,
+            discovery_port: discoveryPortNum,
+            in_memory: isInMemory,
+        } = commandLineArgs;
 
         // Plugin options are created separately so that we can do full type-checking (see call to .plugin)
         const pluginOptions: DatabasePluginAttachment = {
@@ -252,20 +259,20 @@ generateNewIdentity()
         const LocalDB = configurePlugins<DatabaseDocument, DatabasePluginAttachment>(
             {
                 prefix: rootPath + path.sep + "munkey" + path.sep,
-                db: args.in_memory ? MemDown : undefined,
+                db: isInMemory ? MemDown : undefined,
             } as PouchDB.Configuration.DatabaseConfiguration,
             pluginOptions,
         );
         const AdminDB = configurePlugins<AdminDatabaseDocument, {}>(
             {
                 prefix: rootPath + path.sep + "admin" + path.sep,
-                db: args.in_memory ? MemDown : undefined,
+                db: isInMemory ? MemDown : undefined,
             } as PouchDB.Configuration.DatabaseConfiguration,
         );
 
         return Promise.resolve(configureLogging({
                 vault: new VaultService(LocalDB),
-                identity: new IdentityService(id),
+                identity: new IdentityService(uniqueId, keyPair),
                 activity: new ActivityService(bonjour()),
                 connection: new ConnectionService(),
                 web: new WebService(express()),

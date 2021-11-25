@@ -14,11 +14,13 @@ import {
 
 import express from "express";
 import ip from "ip";
+import { readFile } from "fs";
 import * as bonjour from "bonjour";
 import PouchDB from "pouchdb";
 import usePouchDB from "express-pouchdb";
 import {randomUUID} from "crypto";
 import http from "http";
+import https from "https";
 import winston from "winston";
 import ErrnoException = NodeJS.ErrnoException;
 import path from "path";
@@ -64,8 +66,17 @@ type VaultSyncToken = PouchDB.Replication.Sync<DatabaseDocument>;
  *
  * @returns Promise which resolves to a new unique identifier string.
  */
-function generateNewIdentity(): Promise<string> {
-    return Promise.resolve(randomUUID());
+async function generateNewIdentity(rootDir: string): Promise<{ uniqueId: string } & TlsKeyPair> {
+    const keyPair = await IdentityService.loadTlsKeyPair(rootDir)
+        .catch(err => {
+            console.error("Could not load TLS certificate:", err);
+            return { key: undefined, cert: undefined };
+        });
+
+    return {
+        uniqueId: randomUUID(),
+        ...keyPair,
+    };
 }
 
 /**
@@ -111,7 +122,7 @@ function configureRoutes(services: ServiceContainer, options?: ServerOptions): P
     return services
         .admin.initialize()
         .then(adminService => services.vault.useAdminService(adminService))
-        .then(() => services.web.listen(portNum))
+        .then(() => services.web.listen({ portNum, tlsKeyPair: services.identity.getTlsKeyPair() }))
         .then(async () => {
             if (discoveryPortNum && await services.activity.broadcast(
                 services.identity.getId(), discoveryPortNum, portNum))
@@ -357,6 +368,11 @@ class VaultService extends Service {
     }
 }
 
+interface TlsKeyPair {
+    key: Buffer,
+    cert: Buffer,
+}
+
 /**
  * @name IdentityService
  * @summary Service container for local identity information.
@@ -368,7 +384,7 @@ class VaultService extends Service {
  */
 class IdentityService extends Service {
     private readonly uniqueId: string;
-    constructor(uniqueId: string) {
+    constructor(uniqueId: string, private readonly keyPair?: TlsKeyPair) {
         super();
         this.uniqueId = uniqueId;
     }
@@ -381,6 +397,32 @@ class IdentityService extends Service {
      */
     public getId(): string {
         return this.uniqueId;
+    }
+
+    public static loadTlsKeyPair(rootDir: string,
+        keyPath: string = path.join(rootDir, "tls.key"),
+        certPath: string = path.join(rootDir, "tls.crt")): Promise<TlsKeyPair>
+    {
+        return Promise.all([
+                IdentityService.loadKey(keyPath),
+                IdentityService.loadKey(certPath)
+            ])
+            .then(([ key, cert ]) => ({ key, cert }));
+    }
+
+    private static loadKey(keyPath: string): Promise<Buffer> {
+        return new Promise<Buffer>(function(resolve, reject) {
+            readFile(keyPath, (err, data: Buffer) => {
+                if (err) reject(err);
+                else {
+                    resolve(data);
+                }
+            });
+        });
+    }
+
+    public getTlsKeyPair(): TlsKeyPair {
+        return this.keyPair;
     }
 }
 
@@ -430,10 +472,11 @@ class ActivityService extends Service {
     {
         const logger = this.logger;
         const peerResponse: string|null = await new Promise<string>(function(resolve, reject) {
-            http.get({
+            https.get({
                     hostname,
                     port: portNum?.toString(),
                     path: "/link",
+                    rejectUnauthorized: false,
                 },
                 function(res: http.IncomingMessage) {
                     const data: string[] = [];
@@ -714,7 +757,7 @@ class ConnectionService extends Service {
     {
         let connectionMap = this.getOrCreateMap(vaultId);
         let connectionKey = `${device.hostname}:${device.portNum}`;
-        let connectionUrl = `http://${connectionKey}/db/${vaultName}`
+        let connectionUrl = `https://${connectionKey}/db/${vaultName}`
 
         if (!connectionMap.get(connectionKey)) {
             this.logger.info("Adding remote connection to %s", connectionKey);
@@ -781,27 +824,52 @@ class ConnectionService extends Service {
     }
 }
 
+interface WebServiceListenerOptions {
+    hostname?: string;
+    portNum?: number;
+    tlsKeyPair?: TlsKeyPair;
+}
+
 class WebService extends Service {
-    private server: http.Server;
+    private server: http.Server | https.Server;
     private defaultPort: number;
+    private defaultTlsKeyPair: TlsKeyPair;
 
     constructor(private app: express.Application) {
         super();
         this.server = null;
         this.defaultPort = 8000;
+        this.defaultTlsKeyPair = null;
     }
 
     public getApplication(): express.Application {
         return this.app;
     }
 
-    public listen(portNum: number = this.defaultPort, hostname: string = ip.address()): Promise<http.Server> {
+    public listen(options?: WebServiceListenerOptions): Promise<http.Server>
+    {
+        const {
+            hostname = ip.address(),
+            portNum = this.defaultPort,
+            tlsKeyPair = this.defaultTlsKeyPair,
+        } = options;
+        this.defaultTlsKeyPair = this.defaultTlsKeyPair ?? tlsKeyPair;
+
+        if (tlsKeyPair) {
+            this.logger.info("Creating HTTPS server at https://%s:%d", hostname, portNum);
+            this.server = https.createServer({ rejectUnauthorized: false, ...tlsKeyPair }, this.getApplication());
+        }
+        else {
+            this.logger.info("Creating HTTP server at http://%s:%d", hostname, portNum);
+            this.server = http.createServer(this.getApplication());
+        }
+
         return new Promise<http.Server>((resolve, reject) => {
-                const server: http.Server = this.getApplication().listen(
+                this.server.listen(
                     this.defaultPort = portNum,
                     hostname, () => {
                             this.logger.info("Listening on port %d", portNum);
-                            resolve(server);
+                            resolve(this.server);
                         })
                         .on("error", (err: ErrnoException) => {
                             if (err.code === "EADDRINUSE") {
