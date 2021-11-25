@@ -116,7 +116,7 @@ function configureRoutes(services: ServiceContainer, options?: ServerOptions): P
             if (discoveryPortNum && await services.activity.broadcast(
                 services.identity.getId(), discoveryPortNum, portNum))
             {
-                services.activity.listen();
+                services.activity.listen(services);
             }
             return services;
         });
@@ -479,13 +479,20 @@ class ActivityService extends Service {
      * @returns {Promise<PeerIdentityDecl | null>} Promise which resolves to an APL entry,
      * or null if the device endpoint is deemed invalid.
      */
-    public publishDevice(device: DeviceDiscoveryDecl, deviceMask?: Set<string>): Promise<PeerIdentityDecl|null>
+    public publishDevice(device: DeviceDiscoveryDecl & { uniqueId?: string },
+                         deviceMask?: Set<string>): Promise<PeerIdentityDecl|null>
     {
         deviceMask ??= new Set();
 
         this.logger.info("Attempting to publish peer device %s:%d", device.hostname, device.portNum);
         return this.sendLinkRequest(device.hostname, device.portNum)
             .then(async decl => {
+                if (device.uniqueId && device.uniqueId === decl.uniqueId) {
+                    this.logger.info("Peer device at %s:%d matches own identity; discarding",
+                        device.hostname,
+                        device.portNum);
+                    return null;
+                }
                 this.logger.info("Published peer device %s:%d", device.hostname, device.portNum);
                 this.activePeerList.set(`${device.hostname}:${device.portNum}`, decl);
                 let { activePeerList = [] } = decl ?? {};
@@ -496,7 +503,7 @@ class ActivityService extends Service {
 
                 for (let peerDevice of activePeerList) {
                     this.logger.info("Discovered peer device %s:%d", peerDevice.hostname, peerDevice.portNum);
-                    await this.publishDevice(peerDevice, deviceMask);
+                    await this.publishDevice({ ...device, ...peerDevice }, deviceMask);
                 }
 
                 return decl as PeerIdentityDecl;
@@ -547,7 +554,8 @@ class ActivityService extends Service {
                     type: "http",
                     port: servicePortNum,
                     txt: {
-                        "__MKEY_PROTO_VALIDATE__": "TRUE",
+                        "__mkey_proto_validate__": "TRUE",
+                        "__mkey_proto_uuid__": uniqueId.toLowerCase(),
                     }
                 })
                 .on("up", () => {
@@ -569,12 +577,17 @@ class ActivityService extends Service {
         this.broadcastService = broadcastService;
     }
 
-    public listen() {
+    public listen(services?: ServiceContainer) {
         this.mdnsSource.find({ type: "http", subtypes: ["munkey-http"] })
             .on("up", async service => {
                 // The most reliable way to "filter" for our services is to use a custom TXT entry.
                 // All public metadata is included here, most importantly the __mkey_proto_validate__ field.
-                if (service?.txt["__mkey_proto_validate__"] !== "TRUE") {
+                // Additionally, we preemptively discard the packet if the provided UUID is our own,
+                // though ther validations should be performed during the linking process
+                // to ensure we don't link against ourselves.
+                if (service?.txt["__mkey_proto_validate__"] !== "TRUE" ||
+                    service?.txt["__mkey_proto_uuid__"] === services?.identity.getId().toLowerCase())
+                {
                     return;
                 }
                 this.logger.info("Potential peer found: %s", service.name);
@@ -582,8 +595,24 @@ class ActivityService extends Service {
                 const addressList = service.addresses.filter(addr => !!addr.match(/\d{1,3}(\.\d{1,3}){3}/g))
                 for (let hostname of addressList) {
                     this.logger.info("Searching for service at %s:%d", hostname, portNum);
-                    if ( await this.publishDevice({ hostname, portNum })) {
+                    let peerDecl: PeerIdentityDecl = await this.publishDevice({
+                            hostname,
+                            portNum,
+                            uniqueId: services.identity.getId(),
+                        });
+                    if (peerDecl && peerDecl?.uniqueId !== services?.identity.getId()) {
                         this.logger.info("Service search at %s:%d was successful", hostname, portNum);
+                        peerDecl.vaults.forEach(vaultDecl => {
+                            const vault = services?.vault.getVaultById(vaultDecl.vaultId);
+                            if (vault) {
+                                services?.connection.publishDatabaseConnection({ hostname, portNum },
+                                    vaultDecl.nickname,
+                                    vaultDecl.vaultId,
+                                    vault);
+                                this.logger.info("Remote instance %s connected to local vault %s",
+                                    vault.name, vaultDecl.vaultId);
+                            }
+                        });
                         break;
                     }
                 }
