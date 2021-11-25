@@ -24,15 +24,18 @@
 import express from "express";
 import path from "path";
 import PouchDB from "pouchdb";
+import MemDown from "memdown";
 import winston from "winston";
-import {ArgumentParser, Action, Namespace } from "argparse";
+import { ArgumentParser, Action, Namespace } from "argparse";
 import {
+    AdminDatabaseDocument,
     AdminService,
     DatabaseConstructor,
-    DatabaseDocument
+    DatabaseDocument,
+    DatabasePluginAttachment,
 } from "./services";
 
-import { CommandServer, ShellCommandServer } from "./command";
+import { ShellCommandServer } from "./command";
 import {
     ServiceContainer,
     generateNewIdentity,
@@ -43,6 +46,7 @@ import {
     ConnectionService,
     WebService,
 } from "./services";
+import { createCipheriv, createDecipheriv, randomFill } from "crypto";
 
 const uniformPrint = winston.format.printf(function(
     info: winston.Logform.TransformableInfo & { label: string, timestamp: string }): string
@@ -50,7 +54,6 @@ const uniformPrint = winston.format.printf(function(
     let { level, label, message } = info;
     return `[${level}::${label}] ${message}`;
 });
-
 
 const addUniformLogger = function(serviceName: string): winston.Logger {
     winston.loggers.add(serviceName, {
@@ -77,9 +80,23 @@ const configureLogging = function(services: ServiceContainer): typeof services {
     return services;
 };
 
+const configurePlugins = function<D, P>(
+    options: PouchDB.Configuration.DatabaseConfiguration,
+    plugins?: P): DatabaseConstructor<PouchDB.Database<D> & P, D>
+{
+    // TODO: rigorous type assertions to make this squeaky clean.
+    // The main reason this is so ugly right now is because PouchDB's types are pretty wonktacular.
+    if (plugins) {
+        PouchDB.plugin(<unknown> plugins as PouchDB.Plugin);
+    }
+    return PouchDB
+        .defaults(options) as DatabaseConstructor<PouchDB.Database<D> & P, D>;
+}
+
 interface CommandLineArgs {
     root_dir: string;
     port: number;
+    in_memory: boolean;
 }
 
 const parseCommandLineArgs = function(argv: string[] = process.argv.slice(2)): CommandLineArgs {
@@ -107,12 +124,16 @@ const parseCommandLineArgs = function(argv: string[] = process.argv.slice(2)): C
         type: "int",
         default: 8000,
     });
+    parser.add_argument("--in-memory", {
+        help: "Use an in-memory database rather than on-disk (all data lost on application exit)",
+        action: "store_true",
+    })
 
     return parser.parse_args(argv) as CommandLineArgs;
 }
 
 async function main(services: ServiceContainer): Promise<void> {
-    const commands: CommandServer = new ShellCommandServer(services);
+    const commands: ShellCommandServer = new ShellCommandServer(services);
     await services.vault.useAdminService(
         await services.admin.initialize()
     );
@@ -126,12 +147,114 @@ generateNewIdentity()
         const rootPath = args.root_dir;
         const portNum = args.port;
 
-        const LocalDB: DatabaseConstructor<DatabaseDocument> = PouchDB.defaults({
-            prefix: rootPath + path.sep + "munkey" + path.sep,
-        });
-        const AdminDB: DatabaseConstructor<DatabaseDocument> = PouchDB.defaults({
-            prefix: rootPath + path.sep + "admin" + path.sep,
-        });
+        const storedProcedures = {
+            putAttachment: PouchDB.prototype.putAttachment,
+            getAttachment: PouchDB.prototype.getAttachment,
+        };
+
+        // Plugin options are created separately so that we can do full type-checking (see call to .plugin)
+        const pluginOptions: DatabasePluginAttachment = {
+            putEncryptedAttachment(...args) {
+                if (!this.hasOwnProperty("encryptionKey")) {
+                    return storedProcedures.putAttachment.call(this, ...args);
+                }
+
+                // PouchDB's function signatures are strange...
+                // The "optional" argument is revId, which is right in the MIDDLE of the call signature...
+                // So, depending on if this "optional" arg is provided, the attachment is either
+                // `attachment` (if provided) or `revId` (if not provided).
+                let [
+                    docId,
+                    attachmentId,
+                    revId,          // revId | attachment
+                    attachment,     // attachment | attachmentType
+                    attachmentType, // attachmentType | callback | none
+                    callback,       // callback | none
+                    ...remainingArgs
+                ]: any[] = args;
+                let outputArgs: any[] = [ docId, attachmentId ];
+
+                // 3 cases:
+                // Case 1: Caller provided no revId. `revId` is actually an attachment.
+                //   1a: `attachmentType` is a function, and `callback` is undefined.
+                //   1b: `attachmentType` is also undefined (promise-based).
+                // Case 2: Caller provided a revId, `attachmentType` is a string: `attachment` is an attachment.
+                if (["function", "undefined"].includes(typeof (attachmentType ?? undefined))) {
+                    callback = attachmentType;
+                    attachmentType = attachment;
+                    attachment = revId;
+                }
+                else if (typeof attachmentType === "string") {
+                    outputArgs.push(revId);
+                }
+
+                // Determine if it's a promise-based or callback-based call.
+                if (typeof callback === "function") {
+                    // It's callback-based.
+                    throw new Error("Callback-based .putAttachment() proxy not implemented, please use Promise API");
+                }
+                else {
+                    // It's promise-based.
+                    return new Promise<Buffer>((resolve, reject) => {
+                            randomFill(Buffer.alloc(16), (err, fill) => {
+                                if (err) reject(err)
+                                else {
+                                    resolve(fill);
+                                }
+                            });
+                        })
+                        .then(fill => {
+                            const cipher = createCipheriv("aes-192-cbc", this.encryptionKey, fill);
+                            attachment = Buffer.concat([ fill, cipher.update(attachment), cipher.final() ]);
+                            return storedProcedures.putAttachment.call(this,
+                                ...outputArgs,
+                                attachment,
+                                attachmentType,
+                                callback,
+                                ...remainingArgs);
+                        });
+                }
+            },
+            getEncryptedAttachment(...args) {
+                if (!this.hasOwnProperty("encryptionKey")) {
+                    return storedProcedures.getAttachment.call(this, ...args);
+                }
+
+                let callback = args[3];
+                if (typeof callback === "function") {
+                    // It's callback-based.
+                    throw new Error("Callback-based encryption intercept not implemented; please use Promise API");
+                }
+                else {
+                    // It's promise-based.
+                    return storedProcedures.getAttachment
+                        .call(this, ...args)
+                        .then((result: Buffer) => {
+                            const fill = result.slice(0, 16);
+                            const attachment = result.slice(16);
+                            const decipher = createDecipheriv("aes-192-cbc", this.encryptionKey, fill);
+                            return Buffer.concat([ decipher.update(attachment), decipher.final() ]);
+                        });
+                }
+            },
+            useEncryption(encryptionKey: Buffer) {
+                this.encryptionKey = encryptionKey;
+            },
+        };
+
+        const LocalDB = configurePlugins<DatabaseDocument, DatabasePluginAttachment>(
+            {
+                prefix: rootPath + path.sep + "munkey" + path.sep,
+                db: args.in_memory ? MemDown : undefined,
+            } as PouchDB.Configuration.DatabaseConfiguration,
+            pluginOptions,
+        );
+        const AdminDB = configurePlugins<AdminDatabaseDocument, {}>(
+            {
+                prefix: rootPath + path.sep + "admin" + path.sep,
+                db: args.in_memory ? MemDown : undefined,
+            } as PouchDB.Configuration.DatabaseConfiguration,
+        );
 
         return Promise.resolve(configureLogging({
                 vault: new VaultService(LocalDB),
