@@ -13,6 +13,8 @@ import {
 } from "./discovery";
 
 import express from "express";
+import ip from "ip";
+import * as bonjour from "bonjour";
 import PouchDB from "pouchdb";
 import usePouchDB from "express-pouchdb";
 import {randomUUID} from "crypto";
@@ -27,6 +29,7 @@ type DatabaseConstructor<X extends PouchDB.Database<T>, T> = {
 
 interface ServerOptions {
     portNum: number;
+    discoveryPortNum?: number;
     rootPath?: string;
 }
 
@@ -71,21 +74,20 @@ function generateNewIdentity(): Promise<string> {
  * Override options will be accepted but may be ignored.
  * @function
  *
- * @param app Express.js application to attach basic endpoints to.
  * @param {ServiceContainer} services Service container to attach endpoints to.
  * Any updates issued by the web server will be applied to this service container.
- * @param {number} portNum Port number for the web server to listen on.
- * @param {string} rootPath Root location of the running application instance.
- * Any configuration files or persisted data will be stored relative to this location.
- * If not specified, no logging is captured.
+ * @param {ServerOptions} options Configuration options for web services.
  *
  * @returns Promise which resolves to a fully-configured Express.js application object.
  * The resolved application object is the same object as is passed in, but configured.
  */
-function configureRoutes(
-    services: ServiceContainer,
-    { portNum = 8000, rootPath = null }: ServerOptions = { portNum: 8000 }): Promise<ServiceContainer>
+function configureRoutes(services: ServiceContainer, options?: ServerOptions): Promise<ServiceContainer>
 {
+    const {
+        portNum = 8000,
+        rootPath = null,
+        discoveryPortNum = null,
+    } = options ?? {};
     const app = services.web.getApplication();
     const pouchOptions = !rootPath ? {}
         : { logPath: path.resolve(rootPath) + path.sep + "log.txt" };
@@ -106,8 +108,18 @@ function configureRoutes(
 
     app.use("/db", usePouchDB(services.vault.getVaultConstructor(), pouchOptions));
 
-    return services.web.listen(portNum)
-        .then(() => services);
+    return services
+        .admin.initialize()
+        .then(adminService => services.vault.useAdminService(adminService))
+        .then(() => services.web.listen(portNum))
+        .then(async () => {
+            if (discoveryPortNum && await services.activity.broadcast(
+                services.identity.getId(), discoveryPortNum, portNum))
+            {
+                services.activity.listen(services);
+            }
+            return services;
+        });
 }
 
 class Service {
@@ -385,11 +397,13 @@ class IdentityService extends Service {
 class ActivityService extends Service {
     private readonly activePeerList: Map<string, PeerIdentityDecl>;
     private readonly discoveryPool: Map<string, DeviceDiscoveryDecl>;
+    private broadcastService: bonjour.Service;
 
-    constructor() {
+    constructor(private mdnsSource: bonjour.Bonjour) {
         super();
         this.activePeerList = new Map<string, PeerIdentityDecl>();
         this.discoveryPool = new Map<string, DeviceDiscoveryDecl>();
+        this.broadcastService = null;
     }
 
     /**
@@ -418,7 +432,7 @@ class ActivityService extends Service {
         const peerResponse: string|null = await new Promise<string>(function(resolve, reject) {
             http.get({
                     hostname,
-                    port: portNum.toString(),
+                    port: portNum?.toString(),
                     path: "/link",
                 },
                 function(res: http.IncomingMessage) {
@@ -465,13 +479,20 @@ class ActivityService extends Service {
      * @returns {Promise<PeerIdentityDecl | null>} Promise which resolves to an APL entry,
      * or null if the device endpoint is deemed invalid.
      */
-    public publishDevice(device: DeviceDiscoveryDecl, deviceMask?: Set<string>): Promise<PeerIdentityDecl|null>
+    public publishDevice(device: DeviceDiscoveryDecl & { uniqueId?: string },
+                         deviceMask?: Set<string>): Promise<PeerIdentityDecl|null>
     {
         deviceMask ??= new Set();
 
         this.logger.info("Attempting to publish peer device %s:%d", device.hostname, device.portNum);
         return this.sendLinkRequest(device.hostname, device.portNum)
             .then(async decl => {
+                if (device.uniqueId && device.uniqueId === decl.uniqueId) {
+                    this.logger.info("Peer device at %s:%d matches own identity; discarding",
+                        device.hostname,
+                        device.portNum);
+                    return null;
+                }
                 this.logger.info("Published peer device %s:%d", device.hostname, device.portNum);
                 this.activePeerList.set(`${device.hostname}:${device.portNum}`, decl);
                 let { activePeerList = [] } = decl ?? {};
@@ -482,7 +503,7 @@ class ActivityService extends Service {
 
                 for (let peerDevice of activePeerList) {
                     this.logger.info("Discovered peer device %s:%d", peerDevice.hostname, peerDevice.portNum);
-                    await this.publishDevice(peerDevice, deviceMask);
+                    await this.publishDevice({ ...device, ...peerDevice }, deviceMask);
                 }
 
                 return decl as PeerIdentityDecl;
@@ -526,6 +547,99 @@ class ActivityService extends Service {
         return this.activePeerList.delete(`${device.hostname}:${device.portNum}`);
     }
 
+    public broadcast(uniqueId: string, portNum: number, servicePortNum: number): Promise<boolean> {
+        return new Promise(resolve => {
+            const broadcastService = this.mdnsSource.publish({
+                    name: `Munkey Vault[${uniqueId}]`,
+                    type: "http",
+                    port: servicePortNum,
+                    txt: {
+                        "__mkey_proto_validate__": "TRUE",
+                        "__mkey_proto_uuid__": uniqueId.toLowerCase(),
+                    }
+                })
+                .on("up", () => {
+                    this.logger.info("Broadcast active on port %d", portNum);
+                    this.useBroadcastService(broadcastService);
+                    resolve(true);
+                })
+                .on("down", () => {
+                    this.logger.info("lol");
+                })
+                .on("error", err => {
+                    console.error(err);
+                    resolve(false);
+                });
+        });
+    }
+
+    public useBroadcastService(broadcastService: bonjour.Service) {
+        this.broadcastService = broadcastService;
+    }
+
+    public listen(services?: ServiceContainer) {
+        this.mdnsSource.find({ type: "http", subtypes: ["munkey-http"] })
+            .on("up", async service => {
+                // The most reliable way to "filter" for our services is to use a custom TXT entry.
+                // All public metadata is included here, most importantly the __mkey_proto_validate__ field.
+                // Additionally, we preemptively discard the packet if the provided UUID is our own,
+                // though ther validations should be performed during the linking process
+                // to ensure we don't link against ourselves.
+                if (service?.txt["__mkey_proto_validate__"] !== "TRUE" ||
+                    service?.txt["__mkey_proto_uuid__"] === services?.identity.getId().toLowerCase())
+                {
+                    return;
+                }
+                this.logger.info("Potential peer found: %s", service.name);
+                const { port: portNum } = service;
+                const addressList = service.addresses.filter(addr => !!addr.match(/\d{1,3}(\.\d{1,3}){3}/g))
+                for (let hostname of addressList) {
+                    this.logger.info("Searching for service at %s:%d", hostname, portNum);
+                    let peerDecl: PeerIdentityDecl = await this.publishDevice({
+                            hostname,
+                            portNum,
+                            uniqueId: services.identity.getId(),
+                        });
+                    if (peerDecl && peerDecl?.uniqueId !== services?.identity.getId()) {
+                        this.logger.info("Service search at %s:%d was successful", hostname, portNum);
+                        peerDecl.vaults.forEach(vaultDecl => {
+                            const vault = services?.vault.getVaultById(vaultDecl.vaultId);
+                            if (vault) {
+                                services?.connection.publishDatabaseConnection({ hostname, portNum },
+                                    vaultDecl.nickname,
+                                    vaultDecl.vaultId,
+                                    vault);
+                                this.logger.info("Remote instance %s connected to local vault %s",
+                                    vault.name, vaultDecl.vaultId);
+                            }
+                        });
+                        break;
+                    }
+                }
+            })
+            .on("down", service => {
+                const { port: portNum, name } = service;
+                const addressList = service.addresses.filter(addr => !!addr.match(/\d{1,3}(\.\d{1,3}){3}/g));
+
+                this.logger.info("Service '%s' has left", name);
+                for (let hostname of addressList) {
+                    if (this.removeActiveDevice({ hostname, portNum })) {
+                        this.logger.info("Removed service at %s:%d", hostname, portNum);
+                    }
+                }
+            });
+    }
+
+    public stop(): Promise<void> {
+        return new Promise<void>(resolve => {
+            this.mdnsSource.unpublishAll(() => {
+                this.mdnsSource.destroy();
+                this.logger.info("Service discovery disabled");
+                resolve();
+            });
+        });
+    }
+
     /**
      * @name getAllDevices
      * @public
@@ -543,6 +657,19 @@ class ActivityService extends Service {
         for (let [location, identity] of this.activePeerList) {
             const [hostname, portNum]: string[] = location.split(":", 2);
             yield [{ hostname, portNum: parseInt(portNum) }, identity];
+        }
+    }
+
+    public *resolveVaultName(vaultName: string): Generator<[string, DeviceDiscoveryDecl]> {
+        for (let [location, identity] of this.getAllDevices()) {
+            for (let vault of identity.vaults) {
+                if (vault.nickname === vaultName) {
+                    yield [
+                        vault.vaultId,
+                        location,
+                    ];
+                }
+            }
         }
     }
 
@@ -668,20 +795,22 @@ class WebService extends Service {
         return this.app;
     }
 
-    public listen(portNum: number = this.defaultPort): Promise<http.Server> {
+    public listen(portNum: number = this.defaultPort, hostname: string = ip.address()): Promise<http.Server> {
         return new Promise<http.Server>((resolve, reject) => {
-                const server: http.Server = this.getApplication().listen(this.defaultPort = portNum, () => {
-                        this.logger.info("Listening on port %d", portNum);
-                        resolve(server);
+                const server: http.Server = this.getApplication().listen(
+                    this.defaultPort = portNum,
+                    hostname, () => {
+                            this.logger.info("Listening on port %d", portNum);
+                            resolve(server);
+                        })
+                        .on("error", (err: ErrnoException) => {
+                            if (err.code === "EADDRINUSE") {
+                                this.logger.warn(`Port ${portNum} not available`);
+                            }
+                            reject(err);
+                        });
                     })
-                    .on("error", (err: ErrnoException) => {
-                        if (err.code === "EADDRINUSE") {
-                            this.logger.warn(`Port ${portNum} not available`);
-                        }
-                        reject(err);
-                    });
-            })
-            .then(server => this.server = server);
+                    .then(server => this.server = server);
     }
 
     public close(): Promise<void> {
