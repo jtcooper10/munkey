@@ -630,6 +630,19 @@ class ActivityService extends Service {
         }
     }
 
+    public *resolveVaultName(vaultName: string): Generator<[string, DeviceDiscoveryDecl]> {
+        for (let [location, identity] of this.getAllDevices()) {
+            for (let vault of identity.vaults) {
+                if (vault.nickname === vaultName) {
+                    yield [
+                        vault.vaultId,
+                        location,
+                    ];
+                }
+            }
+        }
+    }
+
     public getDeviceList(): DeviceDiscoveryDecl[] {
         return Array
             .from(this.getAllDevices())
