@@ -8,7 +8,7 @@
 import { pbkdf2 } from "crypto";
 import {createInterface, Interface} from "readline";
 import { Readable, Writable } from "stream";
-import { PeerIdentityDecl } from "./discovery";
+import { DeviceDiscoveryDecl, PeerIdentityDecl } from "./discovery";
 import { ServiceContainer } from "./services";
 
 /**
@@ -333,8 +333,23 @@ class ShellCommandServer extends CommandServer {
                     [hostname, portNum] = this.resolveHost(connection);
                 }
                 catch (err) {
-                    console.error("Failed to parse connection string");
-                    return Promise.resolve(null);
+                    // There's still hope; try to resolve the vault name from the APL
+                    let vaultsFound: DeviceDiscoveryDecl[] = [];
+                    for (let [vaultId, device] of this.services.activity.resolveVaultName(vaultName)) {
+                        if (vaultsFound.length === 0) {
+                            console.info("Potential vaults ahoy!");
+                        }
+                        console.info(`  * RemoteVault[${vaultId}]@${device.hostname}:${device.portNum}`);
+                        vaultsFound.push(device);
+                    }
+
+                    // TODO: when >1 device resolved, prompt the user to pick a vault from the list
+                    // For now, we just pick the last one from the list.
+                    ({ hostname, portNum } = vaultsFound.pop() ?? {});
+                    if (!hostname || !portNum) {
+                        console.error(`Failed to resolve ${vaultName} to a remote vault`);
+                        return Promise.resolve(null);
+                    }
                 }
 
                 const [subCommand = null, subArg]: (string | null)[] = rest;
