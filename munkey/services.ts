@@ -13,6 +13,7 @@ import {
 } from "./discovery";
 
 import express from "express";
+import * as bonjour from "bonjour";
 import PouchDB from "pouchdb";
 import usePouchDB from "express-pouchdb";
 import {randomUUID} from "crypto";
@@ -27,6 +28,7 @@ type DatabaseConstructor<X extends PouchDB.Database<T>, T> = {
 
 interface ServerOptions {
     portNum: number;
+    discoveryPortNum?: number;
     rootPath?: string;
 }
 
@@ -71,21 +73,20 @@ function generateNewIdentity(): Promise<string> {
  * Override options will be accepted but may be ignored.
  * @function
  *
- * @param app Express.js application to attach basic endpoints to.
  * @param {ServiceContainer} services Service container to attach endpoints to.
  * Any updates issued by the web server will be applied to this service container.
- * @param {number} portNum Port number for the web server to listen on.
- * @param {string} rootPath Root location of the running application instance.
- * Any configuration files or persisted data will be stored relative to this location.
- * If not specified, no logging is captured.
+ * @param {ServerOptions} options Configuration options for web services.
  *
  * @returns Promise which resolves to a fully-configured Express.js application object.
  * The resolved application object is the same object as is passed in, but configured.
  */
-function configureRoutes(
-    services: ServiceContainer,
-    { portNum = 8000, rootPath = null }: ServerOptions = { portNum: 8000 }): Promise<ServiceContainer>
+function configureRoutes(services: ServiceContainer, options?: ServerOptions): Promise<ServiceContainer>
 {
+    const {
+        portNum = 8000,
+        rootPath = null,
+        discoveryPortNum = null,
+    } = options ?? {};
     const app = services.web.getApplication();
     const pouchOptions = !rootPath ? {}
         : { logPath: path.resolve(rootPath) + path.sep + "log.txt" };
@@ -106,8 +107,18 @@ function configureRoutes(
 
     app.use("/db", usePouchDB(services.vault.getVaultConstructor(), pouchOptions));
 
-    return services.web.listen(portNum)
-        .then(() => services);
+    return services
+        .admin.initialize()
+        .then(adminService => services.vault.useAdminService(adminService))
+        .then(() => services.web.listen(portNum))
+        .then(async () => {
+            if (discoveryPortNum && await services.activity.broadcast(
+                services.identity.getId(), discoveryPortNum, portNum))
+            {
+                services.activity.listen();
+            }
+            return services;
+        });
 }
 
 class Service {
@@ -385,11 +396,13 @@ class IdentityService extends Service {
 class ActivityService extends Service {
     private readonly activePeerList: Map<string, PeerIdentityDecl>;
     private readonly discoveryPool: Map<string, DeviceDiscoveryDecl>;
+    private broadcastService: bonjour.Service;
 
-    constructor() {
+    constructor(private mdnsSource: bonjour.Bonjour) {
         super();
         this.activePeerList = new Map<string, PeerIdentityDecl>();
         this.discoveryPool = new Map<string, DeviceDiscoveryDecl>();
+        this.broadcastService = null;
     }
 
     /**
@@ -418,7 +431,7 @@ class ActivityService extends Service {
         const peerResponse: string|null = await new Promise<string>(function(resolve, reject) {
             http.get({
                     hostname,
-                    port: portNum.toString(),
+                    port: portNum?.toString(),
                     path: "/link",
                 },
                 function(res: http.IncomingMessage) {
@@ -524,6 +537,77 @@ class ActivityService extends Service {
      */
     public removeActiveDevice(device: DeviceDiscoveryDecl): boolean {
         return this.activePeerList.delete(`${device.hostname}:${device.portNum}`);
+    }
+
+    public broadcast(uniqueId: string, portNum: number, servicePortNum: number): Promise<boolean> {
+        return new Promise(resolve => {
+            const broadcastService = this.mdnsSource.publish({
+                    name: `Munkey Vault[${uniqueId}]`,
+                    type: "http",
+                    port: servicePortNum,
+                    txt: {
+                        "__MKEY_PROTO_VALIDATE__": "TRUE",
+                    }
+                })
+                .on("up", () => {
+                    this.logger.info("Broadcast active on port %d", portNum);
+                    this.useBroadcastService(broadcastService);
+                    resolve(true);
+                })
+                .on("down", () => {
+                    this.logger.info("lol");
+                })
+                .on("error", err => {
+                    console.error(err);
+                    resolve(false);
+                });
+        });
+    }
+
+    public useBroadcastService(broadcastService: bonjour.Service) {
+        this.broadcastService = broadcastService;
+    }
+
+    public listen() {
+        this.mdnsSource.find({ type: "http", subtypes: ["munkey-http"] })
+            .on("up", async service => {
+                // The most reliable way to "filter" for our services is to use a custom TXT entry.
+                // All public metadata is included here, most importantly the __mkey_proto_validate__ field.
+                if (service?.txt["__mkey_proto_validate__"] !== "TRUE") {
+                    return;
+                }
+                this.logger.info("Potential peer found: %s", service.name);
+                const { port: portNum } = service;
+                const addressList = service.addresses.filter(addr => !!addr.match(/\d{1,3}(\.\d{1,3}){3}/g))
+                for (let hostname of addressList) {
+                    this.logger.info("Searching for service at %s:%d", hostname, portNum);
+                    if ( await this.publishDevice({ hostname, portNum })) {
+                        this.logger.info("Service search at %s:%d was successful", hostname, portNum);
+                        break;
+                    }
+                }
+            })
+            .on("down", service => {
+                const { port: portNum, name } = service;
+                const addressList = service.addresses.filter(addr => !!addr.match(/\d{1,3}(\.\d{1,3}){3}/g));
+
+                this.logger.info("Service '%s' has left", name);
+                for (let hostname of addressList) {
+                    if (this.removeActiveDevice({ hostname, portNum })) {
+                        this.logger.info("Removed service at %s:%d", hostname, portNum);
+                    }
+                }
+            });
+    }
+
+    public stop(): Promise<void> {
+        return new Promise<void>(resolve => {
+            this.mdnsSource.unpublishAll(() => {
+                this.mdnsSource.destroy();
+                this.logger.info("Service discovery disabled");
+                resolve();
+            });
+        });
     }
 
     /**

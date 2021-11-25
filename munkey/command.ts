@@ -489,6 +489,7 @@ class ShellCommandServer extends CommandServer {
 
     async onUnknownCommand([command = "unknown"]: string[] = []): Promise<void> {
         if (["q", "quit", "exit"].includes(command?.toLowerCase())) {
+            await this.services.activity.stop();
             console.info("Goodbye!");
             process.exit(0);
         }

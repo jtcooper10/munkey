@@ -22,6 +22,7 @@
  */
 
 import express from "express";
+import bonjour from "bonjour";
 import path from "path";
 import PouchDB from "pouchdb";
 import MemDown from "memdown";
@@ -96,6 +97,7 @@ const configurePlugins = function<D, P>(
 interface CommandLineArgs {
     root_dir: string;
     port: number;
+    discovery_port: number;
     in_memory: boolean;
 }
 
@@ -124,6 +126,11 @@ const parseCommandLineArgs = function(argv: string[] = process.argv.slice(2)): C
         type: "int",
         default: 8000,
     });
+    parser.add_argument("-d", "--discovery-port", {
+        help: "Initial port number for the service discovery server to listen on)",
+        type: "int",
+        required: false,
+    })
     parser.add_argument("--in-memory", {
         help: "Use an in-memory database rather than on-disk (all data lost on application exit)",
         action: "store_true",
@@ -134,9 +141,6 @@ const parseCommandLineArgs = function(argv: string[] = process.argv.slice(2)): C
 
 async function main(services: ServiceContainer): Promise<void> {
     const commands: ShellCommandServer = new ShellCommandServer(services);
-    await services.vault.useAdminService(
-        await services.admin.initialize()
-    );
     await commands.useStream(process.stdin)
         .then(() => process.exit(0));
 }
@@ -144,8 +148,11 @@ async function main(services: ServiceContainer): Promise<void> {
 generateNewIdentity()
     .then(id => {
         const args = parseCommandLineArgs(process.argv.slice(2));
-        const rootPath = args.root_dir;
-        const portNum = args.port;
+        const {
+            root_dir: rootPath,
+            port: portNum,
+            discovery_port: discoveryPortNum,
+        } = args;
 
         const storedProcedures = {
             putAttachment: PouchDB.prototype.putAttachment,
@@ -259,7 +266,7 @@ generateNewIdentity()
         return Promise.resolve(configureLogging({
                 vault: new VaultService(LocalDB),
                 identity: new IdentityService(id),
-                activity: new ActivityService(),
+                activity: new ActivityService(bonjour()),
                 connection: new ConnectionService(),
                 web: new WebService(express()),
                 admin: new AdminService(new AdminDB("info")),
@@ -267,6 +274,7 @@ generateNewIdentity()
             .then(services => configureRoutes(services, {
                 portNum,
                 rootPath,
+                discoveryPortNum,
             }));
     })
     .then(services => main(services))
