@@ -13,6 +13,7 @@ import {
 } from "./discovery";
 
 import express from "express";
+import ip from "ip";
 import * as bonjour from "bonjour";
 import PouchDB from "pouchdb";
 import usePouchDB from "express-pouchdb";
@@ -765,20 +766,22 @@ class WebService extends Service {
         return this.app;
     }
 
-    public listen(portNum: number = this.defaultPort): Promise<http.Server> {
+    public listen(portNum: number = this.defaultPort, hostname: string = ip.address()): Promise<http.Server> {
         return new Promise<http.Server>((resolve, reject) => {
-                const server: http.Server = this.getApplication().listen(this.defaultPort = portNum, () => {
-                        this.logger.info("Listening on port %d", portNum);
-                        resolve(server);
+                const server: http.Server = this.getApplication().listen(
+                    this.defaultPort = portNum,
+                    hostname, () => {
+                            this.logger.info("Listening on port %d", portNum);
+                            resolve(server);
+                        })
+                        .on("error", (err: ErrnoException) => {
+                            if (err.code === "EADDRINUSE") {
+                                this.logger.warn(`Port ${portNum} not available`);
+                            }
+                            reject(err);
+                        });
                     })
-                    .on("error", (err: ErrnoException) => {
-                        if (err.code === "EADDRINUSE") {
-                            this.logger.warn(`Port ${portNum} not available`);
-                        }
-                        reject(err);
-                    });
-            })
-            .then(server => this.server = server);
+                    .then(server => this.server = server);
     }
 
     public close(): Promise<void> {
