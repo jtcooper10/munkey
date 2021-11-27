@@ -49,12 +49,14 @@ import {
     ConnectionService,
     WebService,
 } from "./services";
+import { LoggingOptions } from "./logging";
 
 interface CommandLineArgs {
     root_dir: string;
     port: number;
     discovery_port: number;
     in_memory: boolean;
+    verbose: boolean;
 }
 
 const parseCommandLineArgs = function(argv: string[] = process.argv.slice(2)): CommandLineArgs {
@@ -86,11 +88,15 @@ const parseCommandLineArgs = function(argv: string[] = process.argv.slice(2)): C
         help: "Initial port number for the service discovery server to listen on)",
         type: "int",
         required: false,
-    })
+    });
     parser.add_argument("--in-memory", {
         help: "Use an in-memory database rather than on-disk (all data lost on application exit)",
         action: "store_true",
-    })
+    });
+    parser.add_argument("--verbose", {
+        help: "Print all logging information to the console",
+        action: "store_true",
+    });
 
     return parser.parse_args(argv) as CommandLineArgs;
 }
@@ -115,7 +121,13 @@ generateNewIdentity(commandLineArgs.root_dir)
             port: portNum,
             discovery_port: discoveryPortNum,
             in_memory: isInMemory,
+            verbose,
         } = commandLineArgs;
+        const loggingOptions: LoggingOptions = {
+            logLevel: "info",
+            loggingLocation: path.resolve(rootPath, "munkey.log"),
+            useConsole: verbose,
+        };
 
         const LocalDB = configurePlugins<DatabaseDocument, DatabasePluginAttachment>(
             {
@@ -138,7 +150,7 @@ generateNewIdentity(commandLineArgs.root_dir)
                 connection: new ConnectionService(),
                 web: new WebService(express()),
                 admin: new AdminService(new AdminDB("info")),
-            }))
+            }, loggingOptions))
             .then(services => configureRoutes(services, {
                 portNum,
                 rootPath,
