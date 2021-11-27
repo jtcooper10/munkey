@@ -10,8 +10,16 @@ export interface LoggingOptions {
 const uniformPrint = winston.format.printf(function(
     info: winston.Logform.TransformableInfo & { label: string, timestamp: string }): string
 {
-    let { level, label, message } = info;
-    return `[${level}::${label}] ${message}`;
+    let { timestamp, level, label, message, ...everythingElse } = info;
+    if (everythingElse.name) {
+        label = `${label}::${everythingElse.name}`;
+    }
+    if (everythingElse.code) {
+        message = `${message} [${everythingElse.code}]`;
+    }
+    message = `${timestamp} [${level}::${label}] ${message}`;
+
+    return message;
 });
 
 function addUniformLogger(serviceName: string, transports: winston.transport[]): winston.Logger {
@@ -19,6 +27,7 @@ function addUniformLogger(serviceName: string, transports: winston.transport[]):
         format: winston.format.combine(
             winston.format.splat(),
             winston.format.label({ label: serviceName }),
+            winston.format.timestamp(),
             uniformPrint,
         ),
         transports,

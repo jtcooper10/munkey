@@ -35,44 +35,56 @@ export default class WebService extends Service {
             hostname = ip.address(),
             portNum = this.defaultPort,
             tlsKeyPair = this.defaultTlsKeyPair,
-        } = options;
-        this.defaultTlsKeyPair = this.defaultTlsKeyPair ?? tlsKeyPair;
+        } = options ?? {};
 
+        let server: http.Server | https.Server;
         if (tlsKeyPair) {
+            this.defaultTlsKeyPair = this.defaultTlsKeyPair ?? tlsKeyPair;
             this.logger.info("Creating HTTPS server at https://%s:%d", hostname, portNum);
-            this.server = https.createServer({ rejectUnauthorized: false, ...tlsKeyPair }, this.getApplication());
+            server = https.createServer({ rejectUnauthorized: false, ...tlsKeyPair }, this.getApplication());
         }
         else {
             this.logger.info("Creating HTTP server at http://%s:%d", hostname, portNum);
-            this.server = http.createServer(this.getApplication());
+            server = http.createServer(this.getApplication());
         }
 
         return new Promise<http.Server>((resolve, reject) => {
-            this.server.listen(
+            server.listen(
                 this.defaultPort = portNum,
                 hostname, () => {
                     this.logger.info("Listening on port %d", portNum);
-                    resolve(this.server);
+                    resolve(server);
                 })
                 .on("error", (err: ErrnoException) => {
                     if (err.code === "EADDRINUSE") {
                         this.logger.warn(`Port ${portNum} not available`);
                     }
+                    else {
+                        this.logger.error("Could not bind server address %s:", server.address, err);
+                    }
+                    server.close();
                     reject(err);
                 });
-        })
-            .then(server => this.server = server);
+            })
+            .then(server => {
+                this.server = server;
+                this.logger.info("Server successfully bound to address", server.address());
+                return server;
+            });
     }
 
     public close(): Promise<void> {
-        return new Promise(function(resolve, reject) {
+        return new Promise((resolve, reject) => {
             this.server = this.server?.close(err => {
-                if (err) reject(err);
+                if (err) {
+                    this.logger.error("Could not close server:", err);
+                    reject(err);
+                }
                 else {
                     this.logger.info("Server closed");
                     resolve();
                 }
             });
-        }.bind(this));
+        });
     }
 }

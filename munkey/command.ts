@@ -73,6 +73,7 @@ abstract class CommandServer {
             return console.error(`Cannot login to vault ${vaultName} (does not exist)`);
         }
         vault?.useEncryption(encryptionKey);
+        this.services.vault.setActiveVaultByName(vaultName);
     }
 
     async onDeleteVault(vaultName: string): Promise<void> {
@@ -84,28 +85,39 @@ abstract class CommandServer {
 
     async onListVaults(): Promise<void> {
         const activeVaultId = this.services.vault.getActiveVaultId();
+        let atLeastOne: boolean = false, vaultsFound: number = 0;
 
-        console.info(":: :: Active  Vaults :: ::");
         for (let vault of await this.services.vault.getActiveVaultList()) {
+            if (!atLeastOne) {
+                atLeastOne = true;
+                console.info(":: :: Active  Vaults :: ::");
+            }
+            vaultsFound++;
             console.info(
                 ` ${vault.vaultId === activeVaultId ? "*" : " "} \"${vault.nickname}\" = Vault[${vault.vaultId}]`);
         }
 
-        console.info(":: :: Remote  Vaults :: ::");
         for (let [name, url] of this.services.connection.getAllConnections()) {
+            if (!atLeastOne) {
+                atLeastOne = true;
+                console.info(":: :: Remote  Vaults :: ::");
+            }
+            vaultsFound++;
             console.info(`   ${url} = RemoteVault[${name}]`);
+        }
+
+        if (vaultsFound === 0) {
+            console.error("No vaults found!");
         }
     }
 
     async onSetVaultEntry(entryKey: string, data: string): Promise<void> {
         const vault = this.services.vault.getActiveVault();
-        const vaultId = this.services.vault.getActiveVaultId();
         if (vault === null) {
             console.error("No vault selected; please select or create a vault");
             return Promise.resolve();
         }
 
-        console.info(`Adding new vault entry to ${vaultId}`);
         const { _rev } = await vault
             .get("vault")
             .catch(err => {
@@ -120,9 +132,26 @@ abstract class CommandServer {
 
         const passwordDoc: { [key: string]: string } = await vault
             .getEncryptedAttachment("vault", "passwords.json")
-            .then((attachment: Buffer) => JSON.parse(attachment.toString()));
+            .then((attachment: Buffer) => JSON.parse(attachment.toString()))
+            .catch(() => {
+                console.error("Failed to decrypt database");
+            });
+        if (!passwordDoc) {
+            return;
+        }
+
         passwordDoc[entryKey] = data;
-        await vault.putEncryptedAttachment("vault", "passwords.json", _rev, Buffer.from(JSON.stringify(passwordDoc)), "text/plain");
+        await vault
+            .putEncryptedAttachment("vault", "passwords.json", _rev, Buffer.from(JSON.stringify(passwordDoc)), "text/plain")
+            .catch(err => {
+                if (["ERR_OSSL_EVP_BAD_DECRYPT"].includes(err?.code)) {
+                    console.error("Failed to encrypt database (bad password)");
+                }
+                else {
+                    console.error("Failed to encrypt database");
+                }
+            });
+        console.info(`[${entryKey}] = ${data}`);
     }
 
     async onGetVaultEntry(entryKey: string): Promise<void> {
@@ -182,12 +211,26 @@ abstract class CommandServer {
 
     async onLinkUp(): Promise<void> {
         await this.services.web.listen()
-            .catch(() => console.error("Failed to open server"));
+            .catch(err => {
+                if (err.code === "EADDRINUSE") {
+                    console.error(`Cannot open server, port is in use`);
+                }
+                else {
+                    console.error("Failed to open server");
+                }
+            });
     }
 
     async onLinkDown(): Promise<void> {
         await this.services.web.close()
-            .catch(() => console.error("Failed to close server"));
+            .catch(err => {
+                if (err?.code === "ERR_SERVER_NOT_RUNNING") {
+                    console.error("Cannot stop server (not running)");
+                }
+                else {
+                    console.error("An unknown error occurred while trying to stop the server");
+                }
+            });
     }
 
     async onPeerSync(peerId: string): Promise<void> {
@@ -208,11 +251,17 @@ abstract class CommandServer {
     }
 
     async onPeerList(): Promise<void> {
+        let atLeastOne: boolean = false;
         for (let [{ hostname, portNum }, identity] of this.services.activity.getAllDevices()) {
+            atLeastOne = true;
             console.info(` Peer[${identity.uniqueId}]@${hostname}:${portNum}`);
             for (let vault of identity.vaults) {
                 console.info(`\t* "${vault.nickname}": Vault[${vault.vaultId}]`);
             }
+        }
+
+        if (!atLeastOne) {
+            console.error("No peers found!");
         }
     }
 
