@@ -151,7 +151,7 @@ export default class VaultService extends Service {
                     this.logger.warn("Could not decrypt database contents");
                 }
                 else {
-                    this.logger.error("An error occurred while decrypting database contents: %s", err.code);
+                    this.logger.error("An error occurred while decrypting database contents: %s", err);
                 }
                 return null;
             }) ?? {};

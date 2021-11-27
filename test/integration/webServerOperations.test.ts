@@ -35,7 +35,7 @@ describe("Web Server Setup and Teardown", function() {
 
     it("should be available when listen() is called", async function() {
         app.get("/", (req, res) => res.sendStatus(200));
-        server = await service.listen(8000);
+        server = await service.listen({ portNum: 8000 });
         await request(server)
             .get("/")
             .expect(200);
@@ -43,7 +43,7 @@ describe("Web Server Setup and Teardown", function() {
 
     it("should not be available after close() is called", async function() {
         app.get("/", (req, res) => res.sendStatus(200));
-        server = await service.listen(8000);
+        server = await service.listen({ portNum: 8000 });
         await service.close();
 
         // For some reason, Supertest insists that requests to closed servers are valid.
@@ -55,9 +55,9 @@ describe("Web Server Setup and Teardown", function() {
 
     it("should instantiate a unique server after each call to listen()", async function() {
         app.get("/", (req, res) => res.sendStatus(200));
-        server = await service.listen(8000);
+        server = await service.listen({ portNum: 8000 });
         await service.close();
-        server = await service.listen(8001);
+        server = await service.listen({ portNum: 8001 });
 
         await sendHttpRequest("localhost", 8000)
             .then(() => expect.fail("HTTP server was still reachable after closing"))
