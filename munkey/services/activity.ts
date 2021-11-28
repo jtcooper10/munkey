@@ -234,14 +234,14 @@ export default class ActivityService extends Service {
                     if (peerDecl && peerDecl?.uniqueId !== services?.identity.getId()) {
                         this.logger.info("Service search at %s:%d was successful", hostname, portNum);
                         peerDecl.vaults.forEach(vaultDecl => {
-                            const vault = services?.vault.getVaultById(vaultDecl.vaultId);
-                            if (vault) {
+                            const vaultDatabase = services?.vault.getVaultById(vaultDecl.vaultId);
+                            if (vaultDatabase) {
                                 services?.connection.publishDatabaseConnection({ hostname, portNum },
                                     vaultDecl.nickname,
                                     vaultDecl.vaultId,
-                                    vault);
+                                    vaultDatabase.vault);
                                 this.logger.info("Remote instance %s connected to local vault %s",
-                                    vault.name, vaultDecl.vaultId);
+                                    vaultDatabase.name, vaultDecl.vaultId);
                             }
                         });
                         break;

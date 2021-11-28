@@ -10,6 +10,7 @@ import {createInterface, Interface} from "readline";
 import { Readable, Writable } from "stream";
 import { DeviceDiscoveryDecl, PeerIdentityDecl } from "./discovery";
 import { ServiceContainer } from "./services";
+import { EncryptionCipher } from "./pouch";
 
 /**
  * Container for managing and dispatching external commands to the application.
@@ -36,7 +37,7 @@ abstract class CommandServer {
         });
     }
 
-    async onCreateVault(vaultName: string, encryptionKey: Buffer): Promise<void> {
+    async onCreateVault(vaultName: string, cipher: EncryptionCipher): Promise<void> {
         console.info(`Creating new vault (${vaultName})`);
 
         if (this.services.vault.getVaultByName(vaultName)) {
@@ -50,7 +51,7 @@ abstract class CommandServer {
         // Step 4: Modify read/update to include an `integrityKey`.
 
         try {
-            const vaultId: string | null = await this.services.vault.createVault(vaultName, null, encryptionKey);
+            const vaultId: string | null = await this.services.vault.createVault(vaultName, null, cipher);
             console.info(`Vault created with ID ${vaultId}`);
         }
         catch (err) {
@@ -68,11 +69,11 @@ abstract class CommandServer {
     }
 
     async onVaultLogin(vaultName: string, encryptionKey: Buffer) {
-        const vault = this.services.vault.getVaultByName(vaultName);
-        if (!vault) {
+        const vaultDatabase = this.services.vault.getVaultByName(vaultName);
+        if (!vaultDatabase) {
             return console.error(`Cannot login to vault ${vaultName} (does not exist)`);
         }
-        vault?.useEncryption(encryptionKey);
+        vaultDatabase?.setPassword(new EncryptionCipher(encryptionKey));
         this.services.vault.setActiveVaultByName(vaultName);
     }
 
@@ -117,40 +118,10 @@ abstract class CommandServer {
             console.error("No vault selected; please select or create a vault");
             return Promise.resolve();
         }
-
-        const { _rev } = await vault
-            .get("vault")
-            .catch(err => {
-                console.error(err);
-                return { _rev: null };
-            })
-
-        if (_rev === null) {
-            // Document fetch failed; do nothing.
+        else if (await vault.setEntry(entryKey, data) === null) {
+            console.error("Failed to encrypt database (bad password)");
             return Promise.resolve();
         }
-
-        const passwordDoc: { [key: string]: string } = await vault
-            .getEncryptedAttachment("vault", "passwords.json")
-            .then((attachment: Buffer) => JSON.parse(attachment.toString()))
-            .catch(() => {
-                console.error("Failed to decrypt database");
-            });
-        if (!passwordDoc) {
-            return;
-        }
-
-        passwordDoc[entryKey] = data;
-        await vault
-            .putEncryptedAttachment("vault", "passwords.json", _rev, Buffer.from(JSON.stringify(passwordDoc)), "text/plain")
-            .catch(err => {
-                if (["ERR_OSSL_EVP_BAD_DECRYPT"].includes(err?.code)) {
-                    console.error("Failed to encrypt database (bad password)");
-                }
-                else {
-                    console.error("Failed to encrypt database");
-                }
-            });
         console.info(`[${entryKey}] = ${data}`);
     }
 
@@ -173,7 +144,7 @@ abstract class CommandServer {
     async onVaultLink(
         hostname: string, portNum: number,
         vaultName: string, vaultNickname: string = vaultName,
-        derivedKey: Buffer): Promise<void>
+        cipher: EncryptionCipher): Promise<void>
     {
         console.info(`Connecting with vault ${vaultName}@${hostname}:${portNum}`);
 
@@ -194,10 +165,10 @@ abstract class CommandServer {
         let { vaultId = null } = activeDevice?.vaults.find(vault => vault.nickname === vaultName) ?? {};
         if (vaultId) {
             try {
-                vaultId = await this.services.vault.createVault(vaultNickname, vaultId, derivedKey);
+                vaultId = await this.services.vault.createVault(vaultNickname, vaultId, cipher);
                 let localVault = this.services.vault.getVaultById(vaultId);
                 this.services.connection
-                    .publishDatabaseConnection({ hostname, portNum }, vaultName, vaultId, localVault)
+                    .publishDatabaseConnection({ hostname, portNum }, vaultName, vaultId, localVault.vault)
                     .catch(err => console.error(err));
             }
             catch (err) {
@@ -318,7 +289,7 @@ class ShellCommandServer extends CommandServer {
                 }
                 return Promise.resolve(stream => this
                     .promptPasswordCreation(stream)
-                    .then(password => this.onCreateVault(vaultName, password)));
+                    .then(password => this.onCreateVault(vaultName, new EncryptionCipher(password))));
             },
 
             "login": ([vaultName = null]: string[] = []): Promise<CommandReadCallback> => {
@@ -413,7 +384,7 @@ class ShellCommandServer extends CommandServer {
                         console.error("Bad password");
                         return null;
                     }
-                    await this.onVaultLink(hostname, portNum, vaultName, subArg, derivedKey);
+                    await this.onVaultLink(hostname, portNum, vaultName, subArg, new EncryptionCipher(derivedKey));
                 });
             },
         },

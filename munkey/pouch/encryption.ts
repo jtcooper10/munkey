@@ -17,7 +17,7 @@ export interface DatabasePluginAttachment {
     getEncryptedAttachment: (docId: string, attachmentId: string,
                              options?: {rev?: PouchDB.Core.RevisionId | undefined},
                              callback?: (error: Error | null, result: Blob | Buffer | null) => void) => any;
-    useEncryption: (encryptionKey: Buffer) => any;
+    useEncryption: (cipher: EncryptionCipher) => any;
 
     encryptionKey?: Buffer;
 }
@@ -102,7 +102,7 @@ function getEncryptionPlugin(pouchRoot: PouchDB.Static): DatabasePluginAttachmen
 
     return {
         putEncryptedAttachment(...args) {
-            if (!this.hasOwnProperty("encryptionKey")) {
+            if (!this.hasOwnProperty("cipher")) {
                 return storedProcedures.putAttachment.call(this, ...args);
             }
 
@@ -142,7 +142,7 @@ function getEncryptionPlugin(pouchRoot: PouchDB.Static): DatabasePluginAttachmen
             }
             else {
                 // It's promise-based.
-                return new EncryptionCipher(this.encryptionKey)
+                return this.cipher
                     .encrypt(attachment)
                     .then((encryptedAttachment) => storedProcedures.putAttachment.call(this,
                         ...outputArgs,
@@ -153,7 +153,7 @@ function getEncryptionPlugin(pouchRoot: PouchDB.Static): DatabasePluginAttachmen
             }
         },
         getEncryptedAttachment(...args) {
-            if (!this.hasOwnProperty("encryptionKey")) {
+            if (!this.hasOwnProperty("cipher")) {
                 return storedProcedures.getAttachment.call(this, ...args);
             }
 
@@ -166,11 +166,11 @@ function getEncryptionPlugin(pouchRoot: PouchDB.Static): DatabasePluginAttachmen
                 // It's promise-based.
                 return storedProcedures.getAttachment
                     .call(this, ...args)
-                    .then((result: Buffer) => new EncryptionCipher(this.encryptionKey).decrypt(result));
+                    .then((result: Buffer) => this.cipher.decrypt(result));
             }
         },
-        useEncryption(encryptionKey: Buffer) {
-            this.encryptionKey = encryptionKey;
+        useEncryption(cipher: EncryptionCipher) {
+            this.cipher = cipher;
         },
     };
 }
