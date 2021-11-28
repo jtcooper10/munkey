@@ -51,6 +51,10 @@ class EncryptionCipher {
         return new EncryptionCipher(derivedKey, algorithm);
     }
 
+    public getEncryptionKey(): Buffer {
+        return Buffer.from(this.encryptionKey);
+    }
+
     public createCipher(fill: Buffer): Cipher {
         return createCipheriv(this.algorithm, this.encryptionKey, fill);
     }
