@@ -3,8 +3,11 @@ import express from "express";
 import http from "http";
 
 import { describe, it, beforeEach } from "mocha";
-import { expect } from "chai";
+import chai, { expect } from "chai";
+import chaiAsPromised from "chai-as-promised";
 import request from "supertest";
+
+chai.use(chaiAsPromised);
 
 const sendHttpRequest = function(hostname, port): Promise<http.IncomingMessage> {
     return new Promise(function(resolve, reject) {
@@ -13,7 +16,7 @@ const sendHttpRequest = function(hostname, port): Promise<http.IncomingMessage> 
                     port,
                     path: "/",
                 }, res => resolve(res))
-                .on("error", () => reject(new Error()));
+                .on("error", err => reject(err));
         });
 }
 
@@ -35,7 +38,7 @@ describe("Web Server Setup and Teardown", function() {
 
     it("should be available when listen() is called", async function() {
         app.get("/", (req, res) => res.sendStatus(200));
-        server = await service.listen(8000);
+        server = await service.listen({ portNum: 8000, hostname: "localhost" });
         await request(server)
             .get("/")
             .expect(200);
@@ -43,27 +46,22 @@ describe("Web Server Setup and Teardown", function() {
 
     it("should not be available after close() is called", async function() {
         app.get("/", (req, res) => res.sendStatus(200));
-        server = await service.listen(8000);
+        server = await service.listen({ portNum: 8000, hostname: "localhost" });
         await service.close();
 
         // For some reason, Supertest insists that requests to closed servers are valid.
         // Anytime we need to test for `connection refused`, we must handle it manually.
-        await sendHttpRequest("localhost", 8000)
-            .then(() => expect.fail("HTTP server was reachable after closing"))
-            .catch(err => expect(err).to.be.an("Error"));
+        await expect(sendHttpRequest("localhost", 8000)).to.be.rejected;
     });
 
     it("should instantiate a unique server after each call to listen()", async function() {
         app.get("/", (req, res) => res.sendStatus(200));
-        server = await service.listen(8000);
+        server = await service.listen({ portNum: 8000, hostname: "localhost" });
         await service.close();
-        server = await service.listen(8001);
+        server = await service.listen({ portNum: 8001, hostname: "localhost" });
 
-        await sendHttpRequest("localhost", 8000)
-            .then(() => expect.fail("HTTP server was still reachable after closing"))
-            .catch(err => expect(err).to.be.an("Error"));
-        await request(server)
-            .get("/")
-            .expect(200);
+        await expect(sendHttpRequest("localhost", 8000)).to.be.rejected;
+        await expect(sendHttpRequest("localhost", 8001)).to.be.fulfilled;
     });
+
 });

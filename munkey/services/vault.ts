@@ -1,14 +1,106 @@
 import { randomUUID } from "crypto";
 import PouchDB from "pouchdb";
+import winston from "winston";
 
 import AdminService from "./admin";
 import Service, { VaultDB, DatabaseDocument } from "./baseService";
 import { PeerVaultDecl } from "../discovery";
+import {EncryptionCipher} from "../pouch";
 
 
-export type DatabaseConstructor<X extends PouchDB.Database<T>, T> = {
-    new<T>(name?: string, options?: PouchDB.Configuration.DatabaseConfiguration): X;
-};
+export type DatabaseConstructor<T extends PouchDB.Database<D>, D>
+    = (name?: string, options?: PouchDB.Configuration.DatabaseConfiguration) => T;
+
+class VaultDatabase {
+    public readonly vault: VaultDB;
+    private readonly logger?: winston.Logger;
+
+    private constructor(vault: VaultDB, logger?: winston.Logger) {
+        this.vault = vault;
+        this.logger = logger;
+    }
+
+    public static async create(vault: VaultDB, logger?: winston.Logger): Promise<VaultDatabase> {
+        await vault.getEncryptedAttachment("vault", "passwords.json")
+            .then(() => {
+                logger?.info("Database loaded successfully: %s", vault.name);
+            })
+            .catch(err => {
+                if (err.status === 404) {
+                    logger?.info("Database load failed; creating new instance: %s", vault.name);
+                    const blankAttachment = Buffer.from(JSON.stringify({}));
+                    return vault.putEncryptedAttachment("vault", "passwords.json", blankAttachment, "text/plain");
+                }
+                return null;
+            });
+
+        return Promise.resolve(new VaultDatabase(vault, logger));
+    }
+
+    public destroy(): Promise<void> {
+        return this.vault.destroy();
+    }
+
+    public get name(): string {
+        return this.vault.name;
+    }
+
+    public getContent(): Promise<{ [key: string]: string } | null> {
+        return this.vault.getEncryptedAttachment("vault", "passwords.json")
+            .then((attachment: Buffer) => JSON.parse(attachment.toString()))
+            .catch(err => {
+                if (err?.code === "ERR_OSSL_EVP_BAD_DECRYPT") {
+                    this.logger?.warn("Could not decrypt database contents");
+                }
+                else {
+                    this.logger?.error("An error occurred while decrypting database contents: %s", err);
+                }
+                return null;
+            });
+    }
+
+    public async getEntry(entryKey: string): Promise<string | null> {
+        const entries: { [key: string]: string } = (await this.getContent()) ?? {};
+        return entries[entryKey];
+    }
+
+    public async setEntry(entryKey: string, entryValue: string): Promise<string | null> {
+        let entries = await this.getContent();
+        if (entries === null) {
+            return null;
+        }
+
+        entries ??= {};
+        entries = { ...entries, [entryKey]: entryValue };
+
+        const { _rev } = await this.vault
+            .get("vault")
+            .catch(() => ({ _rev: null }));
+
+        if (_rev) {
+            await this.vault
+                .putEncryptedAttachment("vault", "passwords.json", _rev,
+                    Buffer.from(JSON.stringify(entries)), "text/plain")
+                .catch(err => {
+                    if (["ERR_OSSL_EVP_BAD_DECRYPT"].includes(err?.code)) {
+                        this.logger?.warn("Failed to encrypt database (bad password)");
+                    }
+                    else {
+                        this.logger?.error("Failed to encrypt database");
+                    }
+                    return null;
+                });
+
+            return entryValue;
+        }
+
+        return null;
+    }
+
+    public setPassword(cipher: EncryptionCipher) {
+        this.vault.useEncryption(cipher);
+    }
+}
 
 /**
  * @name VaultService
@@ -16,14 +108,14 @@ export type DatabaseConstructor<X extends PouchDB.Database<T>, T> = {
  * @class
  */
 export default class VaultService extends Service {
-    private readonly vaultMap: Map<string, VaultDB>;
+    private readonly vaultMap: Map<string, VaultDatabase>;
     private readonly vaultIdMap: Map<string, string>;
     private activeVault: [string | null, string | null];
     private adminService?: AdminService;
 
     constructor(private Vault: DatabaseConstructor<VaultDB, DatabaseDocument>) {
         super();
-        this.vaultMap = new Map<string, VaultDB>();
+        this.vaultMap = new Map<string, VaultDatabase>();
         this.vaultIdMap = new Map<string, string>();
         this.activeVault = [null, null];
         this.adminService = null;
@@ -39,51 +131,33 @@ export default class VaultService extends Service {
      * The vault is issued a new, randomly generated UUID on creation.
      * @param {string} vaultId Suggested UUID for the new vault.
      * Recommended only when the vault you are creating already exists.
-     * @param {string} encryptionKey Symmetric key used to encrypt/decrypt the contents of the vault.
+     * @param {EncryptionCipher} cipher Symmetric key used to encrypt/decrypt the contents of the vault.
      * @returns {string|null} UUID of new (or existing) PouchDB database.
      */
-    public createVault(vaultName: string, vaultId?: string | null, encryptionKey?: Buffer | null): Promise<string | null>
+    public createVault(vaultName: string, vaultId?: string | null, cipher?: EncryptionCipher | null): Promise<string | null>
     {
         if (!vaultName) {
             throw new ReferenceError(`Invalid vault name: ${vaultName}`);
         }
 
         vaultId ??= (this.vaultIdMap.get(vaultName) || null);
-        let vault: VaultDB | null = vaultId && this.vaultMap.get(vaultId) || null;
+        let vault: VaultDatabase | null = vaultId && this.getVaultById(vaultId) || null;
 
         if (this.vaultIdMap.get(vaultName) && this.vaultIdMap.get(vaultName) !== vaultId) {
             throw new Error(`Name conflict; local nickname ${vaultName} already exists`);
         }
         else if (!vault) {
-            // Vault not found; create it and initialize its schema.
-            this.vaultIdMap.set(vaultName, vaultId ??= randomUUID());
-            this.vaultMap.set(vaultId, vault = new this.Vault(vaultName));
-            this.activeVault = [vaultName, vaultId];
-
-            if (encryptionKey) {
-                vault.useEncryption(encryptionKey);
+            const vaultDb = this.Vault(vaultName);
+            if (cipher) {
+                vaultDb.useEncryption(cipher);
             }
 
-            return vault
-                .getEncryptedAttachment("vault", "passwords.json")
-                .then(() => {
-                    this.logger.info("Database loaded successfully: id %s", vaultId);
-                    return vaultId;
-                })
-                .catch(err => {
-                    if (err.status === 404) {
-                        this.logger.info("Database load failed; creating new instance: id %s", vaultId);
-                        const blankAttachment = Buffer.from(JSON.stringify({}));
-                        return vault
-                            .putEncryptedAttachment("vault", "passwords.json", blankAttachment, "text/plain")
-                            .then(() => {
-                                this.logger.info("Database created successfully: id %s", vaultId);
-                                return this.adminService?.recordVaultCreation(vaultName, vaultId);
-                            })
-                            .then(() => vaultId);
-                    }
-                    this.logger.error("Failed to create local database", err);
-                    return null;
+            return VaultDatabase.create(vaultDb, this.logger)
+                .then(newVault => {
+                    this.vaultMap.set(vaultId, newVault);
+                    this.vaultIdMap.set(vaultName, vaultId ??= randomUUID());
+                    this.activeVault = [vaultName, vaultId];
+                    return this.vaultIdMap.get(vaultName);
                 });
         }
 
@@ -137,32 +211,21 @@ export default class VaultService extends Service {
      * @returns PouchDB instance if one with the provided ID exists.
      * Otherwise, returns undefined.
      */
-    public getVaultByName(vaultName: string): VaultDB | null {
+    public getVaultByName(vaultName: string): VaultDatabase | null {
         let vaultId: string | null = this.vaultIdMap.get(vaultName) || null;
         return vaultId && this.getVaultById(vaultId);
     }
 
-    public async getVaultEntry(vaultId: string, entryKey: string): Promise<string | null> {
+    public async getVaultEntry(vaultId: string, entryKey: string): Promise<string | null | undefined> {
         const vault = this.getVaultById(vaultId) ?? null;
-        const entries: { [key: string]: string } = await vault?.getEncryptedAttachment("vault", "passwords.json")
-            .then((attachment: Buffer) => JSON.parse(attachment.toString()))
-            .catch(err => {
-                if (err.code === "ERR_OSSL_EVP_BAD_DECRYPT") {
-                    this.logger.warn("Could not decrypt database contents");
-                }
-                else {
-                    this.logger.error("An error occurred while decrypting database contents: %s", err.code);
-                }
-                return null;
-            }) ?? {};
-        return entries[entryKey] ?? null;
+        return vault?.getEntry(entryKey);
     }
 
-    public getVaultById(vaultId: string): VaultDB | null {
+    public getVaultById(vaultId: string): VaultDatabase | null {
         return this.vaultMap.get(vaultId) || null;
     }
 
-    public setActiveVaultById(vaultId: string, vaultName: string = "unknown"): VaultDB | null {
+    public setActiveVaultById(vaultId: string, vaultName: string = "unknown"): VaultDatabase | null {
         const vault = this.vaultMap.get(vaultId) || null;
         if (vault) {
             this.activeVault = [vaultName, vaultId];
@@ -170,12 +233,12 @@ export default class VaultService extends Service {
         return vault;
     }
 
-    public setActiveVaultByName(vaultName: string): VaultDB | null {
+    public setActiveVaultByName(vaultName: string): VaultDatabase | null {
         const vaultId: string = this.vaultIdMap.get(vaultName) || null;
         return this.setActiveVaultById(vaultId, vaultName);
     }
 
-    public getActiveVault(): VaultDB | null {
+    public getActiveVault(): VaultDatabase | null {
         return this.vaultMap.get(this.getActiveVaultId()) || null;
     }
 
@@ -231,3 +294,7 @@ export default class VaultService extends Service {
         return this.Vault;
     }
 }
+
+export {
+    VaultDatabase,
+};

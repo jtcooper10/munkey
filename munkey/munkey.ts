@@ -37,7 +37,8 @@ import {
     configureRoutes,
     configurePlugins,
     configureLogging,
-    DatabasePluginAttachment, encryptionPlugin,
+    DatabasePluginAttachment,
+    getEncryptionPlugin,
 } from "./configure";
 import { ShellCommandServer } from "./command";
 import {
@@ -134,7 +135,7 @@ generateNewIdentity(commandLineArgs.root_dir)
                 prefix: rootPath + path.sep + "munkey" + path.sep,
                 db: isInMemory ? MemDown : undefined,
             } as PouchDB.Configuration.DatabaseConfiguration,
-            encryptionPlugin,
+            getEncryptionPlugin(PouchDB),
         );
         const AdminDB = configurePlugins<AdminDatabaseDocument, {}>(
             {
@@ -149,7 +150,7 @@ generateNewIdentity(commandLineArgs.root_dir)
                 activity: new ActivityService(bonjour()),
                 connection: new ConnectionService(),
                 web: new WebService(express()),
-                admin: new AdminService(new AdminDB("info")),
+                admin: new AdminService(AdminDB("info")),
             }, loggingOptions))
             .then(services => configureRoutes(services, {
                 portNum,

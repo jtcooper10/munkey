@@ -75,8 +75,11 @@ function configurePlugins<D, P>(
     if (plugins) {
         PouchDB.plugin(<unknown> plugins as PouchDB.Plugin);
     }
-    return PouchDB
-        .defaults(options) as DatabaseConstructor<PouchDB.Database<D> & P, D>;
+
+    const CustomDatabase = PouchDB.defaults(options);
+    return function(name, options) {
+        return new CustomDatabase(name, options) as PouchDB.Database<D> & P;
+    };
 }
 
 export {
