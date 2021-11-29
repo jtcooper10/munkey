@@ -62,11 +62,13 @@ type Stub = sinon.SinonStub<any[], Promise<any>>;
 describe("Test PouchDB Encryption Plugin", function() {
 
     const message: string = '{"message":"hello"}';
+    const rawMessage: Buffer = Buffer.from(message);
     const messageDoc = JSON.parse(message);
     let sandbox: sinon.SinonSandbox;
     let password: string, badPassword: string;
     let cipher: EncryptionCipher, badCipher: EncryptionCipher;
     let encrypt: EncryptMethod, decrypt: EncryptMethod;
+    let badEncrypt: EncryptMethod, badDecrypt: EncryptMethod;
     let getAttachment: Stub, putAttachment: Stub;
     let encryptedMessage: Buffer;
 
@@ -78,11 +80,13 @@ describe("Test PouchDB Encryption Plugin", function() {
         } while(badPassword === password);
         cipher = await EncryptionCipher.fromPassword(password);
         badCipher = await EncryptionCipher.fromPassword(badPassword);
-        encryptedMessage = await cipher.encrypt(Buffer.from(message));
-        getAttachment = sandbox.stub(PouchDB.prototype, "getAttachment").resolves(encryptedMessage);
-        putAttachment = sandbox.stub(PouchDB.prototype, "putAttachment").resolves();
+        encryptedMessage = await cipher.encrypt(rawMessage);
+        getAttachment = sandbox.stub(PouchDB.prototype, "getAttachment").resolves(encryptedMessage) as Stub;
+        putAttachment = sandbox.stub(PouchDB.prototype, "putAttachment").resolves() as Stub;
         encrypt = sandbox.spy(cipher, "encrypt");
+        badEncrypt = sandbox.spy(badCipher, "encrypt");
         decrypt = sandbox.spy(cipher, "decrypt");
+        badDecrypt = sandbox.spy(badCipher, "decrypt");
     });
 
     afterEach(function() {
@@ -91,7 +95,7 @@ describe("Test PouchDB Encryption Plugin", function() {
 
     it("should return the decrypted database contents with the right password", async function() {
         const plugin = getEncryptionPlugin(PouchDB);
-        plugin.useEncryption(cipher.getEncryptionKey());
+        plugin.useEncryption(cipher);
         const decryptedAttachment = await plugin.getEncryptedAttachment("some-doc", "passwords.json");
         const decryptedString = decryptedAttachment.toString();
         const decryptedMessage = JSON.parse(decryptedString).message;
@@ -106,16 +110,35 @@ describe("Test PouchDB Encryption Plugin", function() {
         const encryptedString = encryptedAttachment.toString();
 
         expect(getAttachment.called).to.be.true;
+        expect(badDecrypt.called).to.be.false;
         expect(() => JSON.parse(encryptedString)).to.throw(SyntaxError);
-        expect(decrypt.called).to.be.false;
     });
 
     it("should try, but fail, to decrypt when given an invalid or incorrect password", async function() {
         const plugin = getEncryptionPlugin(PouchDB);
-        plugin.useEncryption(badCipher.getEncryptionKey());
+        plugin.useEncryption(badCipher);
 
         await expect(plugin.getEncryptedAttachment("some-doc", "passwords.json")).to.be.rejected;
-        expect(decrypt.called).to.be.true;
+        expect(badDecrypt.called).to.be.true;
+    });
+
+    it("should encrypt database contents before insertion when .useEncryption() is used", async function() {
+        const plugin = getEncryptionPlugin(PouchDB);
+        plugin.useEncryption(cipher);
+
+        await expect(plugin.putEncryptedAttachment(
+            "some-doc", "passwords.json", "_rev_any", rawMessage, "text/plain"))
+            .to.be.fulfilled;
+        const foundBuffer = putAttachment.args[0].find(arg => arg instanceof Buffer);
+
+        expect(encrypt.calledWith(rawMessage)).to.be.true;
+        expect(() => JSON.parse(foundBuffer)).to.throw(SyntaxError);
+        await expect(cipher.decrypt(foundBuffer)).to.be.fulfilled;
+
+        const decryptedString = await cipher.decrypt(foundBuffer);
+        const decryptedMessage = JSON.parse(decryptedString.toString());
+
+        expect(decryptedMessage).to.deep.equal(messageDoc);
     });
 
 });

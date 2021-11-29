@@ -150,7 +150,7 @@ generateNewIdentity(commandLineArgs.root_dir)
                 activity: new ActivityService(bonjour()),
                 connection: new ConnectionService(),
                 web: new WebService(express()),
-                admin: new AdminService(new AdminDB("info")),
+                admin: new AdminService(AdminDB("info")),
             }, loggingOptions))
             .then(services => configureRoutes(services, {
                 portNum,

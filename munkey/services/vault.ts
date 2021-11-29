@@ -8,9 +8,8 @@ import { PeerVaultDecl } from "../discovery";
 import {EncryptionCipher} from "../pouch";
 
 
-export type DatabaseConstructor<X extends PouchDB.Database<T>, T> = {
-    new<T>(name?: string, options?: PouchDB.Configuration.DatabaseConfiguration): X;
-};
+export type DatabaseConstructor<T extends PouchDB.Database<D>, D>
+    = (name?: string, options?: PouchDB.Configuration.DatabaseConfiguration) => T;
 
 class VaultDatabase {
     public readonly vault: VaultDB;
@@ -148,7 +147,7 @@ export default class VaultService extends Service {
             throw new Error(`Name conflict; local nickname ${vaultName} already exists`);
         }
         else if (!vault) {
-            const vaultDb = new this.Vault(vaultName);
+            const vaultDb = this.Vault(vaultName);
             if (cipher) {
                 vaultDb.useEncryption(cipher);
             }

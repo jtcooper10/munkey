@@ -46,7 +46,7 @@ describe("Web Server Setup and Teardown", function() {
 
     it("should not be available after close() is called", async function() {
         app.get("/", (req, res) => res.sendStatus(200));
-        server = await service.listen({ portNum: 8000 });
+        server = await service.listen({ portNum: 8000, hostname: "localhost" });
         await service.close();
 
         // For some reason, Supertest insists that requests to closed servers are valid.
