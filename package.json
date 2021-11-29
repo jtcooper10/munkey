@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc --build munkey",
     "start": "npm run build && node munkey/bin/munkey.js",
-    "clean": "rm -rf bin node_modules",
+    "clean": "rm -rf munkey/bin node_modules",
     "test": "mocha --config ./.mocharc.json test/**/*.test.ts"
   },
   "keywords": [],

@@ -157,6 +157,7 @@ export default class VaultService extends Service {
                     this.vaultIdMap.set(vaultName, vaultId ??= randomUUID());
                     this.vaultMap.set(vaultId, newVault);
                     this.activeVault = [vaultName, vaultId];
+                    this.adminService?.recordVaultCreation(newVault.name, vaultId);
                     return this.vaultIdMap.get(vaultName);
                 });
         }
