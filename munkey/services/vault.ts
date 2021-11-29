@@ -154,8 +154,8 @@ export default class VaultService extends Service {
 
             return VaultDatabase.create(vaultDb, this.logger)
                 .then(newVault => {
-                    this.vaultMap.set(vaultId, newVault);
                     this.vaultIdMap.set(vaultName, vaultId ??= randomUUID());
+                    this.vaultMap.set(vaultId, newVault);
                     this.activeVault = [vaultName, vaultId];
                     return this.vaultIdMap.get(vaultName);
                 });
