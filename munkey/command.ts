@@ -63,7 +63,7 @@ abstract class CommandServer {
         console.info(`Switching to vault ${vaultName}`);
 
         if (!this.services.vault.getVaultByName(vaultName)) {
-            return console.error(`Cannot delete vault ${vaultName} (does not exist)`);
+            return console.error(`Cannot switch to vault ${vaultName} (does not exist)`);
         }
         this.services.vault.setActiveVaultByName(vaultName);
     }
@@ -98,6 +98,7 @@ abstract class CommandServer {
                 ` ${vault.vaultId === activeVaultId ? "*" : " "} \"${vault.nickname}\" = Vault[${vault.vaultId}]`);
         }
 
+        atLeastOne = false;
         for (let [name, url] of this.services.connection.getAllConnections()) {
             if (!atLeastOne) {
                 atLeastOne = true;

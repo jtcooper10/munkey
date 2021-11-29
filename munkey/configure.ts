@@ -4,10 +4,15 @@ import PouchDB from "pouchdb";
 import usePouchDB from "express-pouchdb";
 
 import { DeviceDiscoveryDecl, PeerIdentityDecl } from "./discovery";
-import { DatabaseConstructor, ServiceContainer } from "./services";
+import { DatabaseDocument, ServiceContainer } from "./services";
+
+type PouchConstructor<Content> = {
+    new<Content>(name?: string, options?: PouchDB.Configuration.DatabaseConfiguration): PouchDB.Database<Content>
+};
 
 export interface ServerOptions {
     portNum: number;
+    pouch?: PouchConstructor<DatabaseDocument>;
     discoveryPortNum?: number;
     rootPath?: string;
 }
@@ -30,6 +35,7 @@ function configureRoutes(services: ServiceContainer, options?: ServerOptions): P
     const {
         portNum = 8000,
         rootPath = null,
+        pouch = null,
         discoveryPortNum = null,
     } = options ?? {};
     const app = services.web.getApplication();
@@ -50,7 +56,9 @@ function configureRoutes(services: ServiceContainer, options?: ServerOptions): P
         response.json(identityResponse).end();
     });
 
-    app.use("/db", usePouchDB(services.vault.getVaultConstructor(), pouchOptions));
+    if (pouch) {
+        app.use("/db", usePouchDB(pouch, pouchOptions));
+    }
 
     return services
         .admin.initialize()
@@ -68,7 +76,7 @@ function configureRoutes(services: ServiceContainer, options?: ServerOptions): P
 
 function configurePlugins<D, P>(
     options: PouchDB.Configuration.DatabaseConfiguration,
-    plugins?: P): DatabaseConstructor<PouchDB.Database<D> & P, D>
+    plugins?: P): PouchConstructor<D & P>
 {
     // TODO: rigorous type assertions to make this squeaky clean.
     // The main reason this is so ugly right now is because PouchDB's types are pretty wonktacular.
@@ -76,10 +84,7 @@ function configurePlugins<D, P>(
         PouchDB.plugin(<unknown> plugins as PouchDB.Plugin);
     }
 
-    const CustomDatabase = PouchDB.defaults(options);
-    return function(name, options) {
-        return new CustomDatabase(name, options) as PouchDB.Database<D> & P;
-    };
+    return PouchDB.defaults(options);
 }
 
 export {

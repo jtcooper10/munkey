@@ -143,19 +143,23 @@ generateNewIdentity(commandLineArgs.root_dir)
                 db: isInMemory ? MemDown : undefined,
             } as PouchDB.Configuration.DatabaseConfiguration,
         );
+        const getLocalDB = function(name, options) {
+            return new LocalDB(name, options) as PouchDB.Database<DatabaseDocument> & DatabasePluginAttachment;
+        };
 
         return Promise.resolve(configureLogging({
-                vault: new VaultService(LocalDB),
+                vault: new VaultService(getLocalDB),
                 identity: new IdentityService(uniqueId, keyPair),
                 activity: new ActivityService(bonjour()),
                 connection: new ConnectionService(),
                 web: new WebService(express()),
-                admin: new AdminService(AdminDB("info")),
+                admin: new AdminService(new AdminDB("info")),
             }, loggingOptions))
             .then(services => configureRoutes(services, {
                 portNum,
                 rootPath,
                 discoveryPortNum,
+                pouch: LocalDB,
             }));
     })
     .then(services => main(services))
