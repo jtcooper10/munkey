@@ -157,7 +157,8 @@ export default class VaultService extends Service {
                     this.vaultIdMap.set(vaultName, vaultId ??= randomUUID());
                     this.vaultMap.set(vaultId, newVault);
                     this.activeVault = [vaultName, vaultId];
-                    this.adminService?.recordVaultCreation(newVault.name, vaultId);
+                    this.adminService?.recordVaultCreation(newVault.name, vaultId)
+                        .catch(err => this.logger.error("Could not update admin records: ", err));
                     return this.vaultIdMap.get(vaultName);
                 });
         }
@@ -169,9 +170,10 @@ export default class VaultService extends Service {
         this.adminService = adminService;
 
         const vaultRecords = await this.adminService.getAllVaultRecords();
-        await Promise.all(vaultRecords?.map(({ vaultName, vaultId }) =>
-            this.createVault(vaultName, vaultId)
-        ) ?? []);
+        await Promise.all(vaultRecords?.map(({ vaultName, vaultId }) => {
+            this.logger.info("Requesting initial vault load: %s[%s]", vaultName, vaultId);
+            return this.createVault(vaultName, vaultId);
+        }) ?? []);
 
         return this;
     }

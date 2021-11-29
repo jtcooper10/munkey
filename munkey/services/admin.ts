@@ -41,11 +41,15 @@ export default class AdminService extends Service {
             .get<AdminDatabaseDocument>("vaultIds")
             .then(doc => {
                 const { _id, _rev, vaultIds } = doc;
+                if (vaultIds.map(({ vaultId }) => vaultId).includes(vaultId)) {
+                    this.logger.info("Skipping admin database record insert for %s[%s]", vaultName, vaultId);
+                    return Promise.resolve();
+                }
                 return this.adminDatabase.put({
-                    _id,
-                    _rev,
-                    vaultIds: [...vaultIds, { vaultName, vaultId }],
-                })
+                        _id,
+                        _rev,
+                        vaultIds: [...vaultIds, { vaultName, vaultId }],
+                    })
                     .then(result => {
                         this.logger.info("Vault record creation: %s", result.ok ? "Success" : "Failure");
                     });
