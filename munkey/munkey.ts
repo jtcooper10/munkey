@@ -21,157 +21,148 @@
  * @created : 10/13/2021
  */
 
-import http from "http";
-import PouchDB from "pouchdb";
 import express from "express";
-import usePouchDB from "express-pouchdb";
-import { CommandServer } from "./command";
+import bonjour from "bonjour";
+import path from "path";
+import PouchDB from "pouchdb";
+import MemDown from "memdown";
+import { ArgumentParser, Action, Namespace } from "argparse";
 
-const MemoryDB = PouchDB.defaults({
-    db: require("memdown")
-});
+import {
+    AdminDatabaseDocument,
+    AdminService,
+    DatabaseDocument,
+} from "./services";
+import {
+    configureRoutes,
+    configurePlugins,
+    configureLogging,
+    DatabasePluginAttachment,
+    getEncryptionPlugin,
+} from "./configure";
+import { ShellCommandServer } from "./command";
+import {
+    generateNewIdentity,
+    ServiceContainer,
+    VaultService,
+    IdentityService,
+    ActivityService,
+    ConnectionService,
+    WebService,
+} from "./services";
+import { LoggingOptions } from "./logging";
 
-const portNum: number = process.argv.length > 2
-    ? parseInt(process.argv[2])
-    : 8000;
-
-let server: http.Server = null;
-
-async function configureRoutes(app: express.Application): Promise<express.Application> {
-    app.get("/", function(request, response) {
-        response.send("Hello, world!\n");
-    });
-
-    app.use("/db", usePouchDB(MemoryDB));
-
-    return app;
+interface CommandLineArgs {
+    root_dir: string;
+    port: number;
+    discovery_port: number;
+    in_memory: boolean;
+    verbose: boolean;
 }
 
-async function main(): Promise<void> {
-    const vaultDb = new MemoryDB("vault");
-
-    const commands: CommandServer = new class extends CommandServer {
-        private currentVault?: string = null;
-
-        async onCreateVault(vaultName: string): Promise<void> {
-            console.info(`Creating new vault (${vaultName})`);
-
-            await vaultDb.put({
-                _id: vaultName,
-                entries: {},
-            })
-            .then(() => {
-                this.currentVault = vaultName;
-            })
-            .catch(err => {
-                if (err.status === 409) {
-                    console.error(`Cannot create vault ${vaultName} (already exists)`);
-                }
-                else {
-                    console.error(err);
-                }
-            });
-        }
-
-        async onAddVaultEntry(entryKey: string, data: string): Promise<void> {
-            if (this.currentVault === null) {
-                console.error("No vault selected; please select or create a vault");
-                return Promise.resolve();
+const parseCommandLineArgs = function(argv: string[] = process.argv.slice(2)): CommandLineArgs {
+    class PathResolver extends Action {
+        call(parser: ArgumentParser,
+             namespace: Namespace,
+             values: string | string[],
+             optionString: string | null): void
+        {
+            if (values instanceof Array) {
+                values = values.join(path.sep);
             }
-
-            console.info(`Adding new vault entry to ${this.currentVault}`);
-            const vault = await vaultDb.get(this.currentVault)
-                .catch(err => console.error(err));
-
-            if (vault) {
-                const { entries } = vault;
-                if (entryKey in entries) {
-                    console.error("Entry already exists");
-                    return Promise.resolve();
-                }
-
-                await vaultDb.put({
-                    _id: this.currentVault,
-                    _rev: vault._rev,
-                    entries: { ...entries, [entryKey]: data },
-                }).catch(err => console.error(err));
-            }
+            namespace[this.dest] = path.resolve(values);
         }
+    }
+    const parser = new ArgumentParser();
+    parser.add_argument("-r", "--root-dir", {
+        help: "Root directory where all database and configuration files will be stored to and loaded from",
+        action: PathResolver,
+        // TODO: on release, change this to something else (temp/home dir maybe?)
+        default: path.resolve("localhost"),
+    });
+    parser.add_argument("-p", "--port", {
+        help: "Initial port number for the web server to listen on (can be reconfigured at runtime)",
+        type: "int",
+        default: 8000,
+    });
+    parser.add_argument("-d", "--discovery-port", {
+        help: "Initial port number for the service discovery server to listen on)",
+        type: "int",
+        required: false,
+    });
+    parser.add_argument("--in-memory", {
+        help: "Use an in-memory database rather than on-disk (all data lost on application exit)",
+        action: "store_true",
+    });
+    parser.add_argument("--verbose", {
+        help: "Print all logging information to the console",
+        action: "store_true",
+    });
 
-        async onGetVaultEntry(entryKey: string): Promise<void> {
-            if (this.currentVault === null) {
-                console.error("No vault selected; please select or create a vault");
-                return Promise.resolve();
-            }
+    return parser.parse_args(argv) as CommandLineArgs;
+}
 
-            const vault = await vaultDb.get(this.currentVault)
-                .catch(err => console.error(err));
-            
-            if (vault) {
-                const data = vault.entries[entryKey];
-                if (!data) {
-                    console.error("Vault entry not found");
-                }
-                else {
-                    console.info(`[${entryKey}] = ${data}`);
-                }
-            }
-        }
-
-        async onLinkUp(): Promise<void> {
-            console.info("Unimplemented command: link up");
-        }
-
-        async onLinkDown(): Promise<void> {
-            console.info("Unimplemented command: link down");
-        }
-
-        async onPeerSync(peerId: string): Promise<void> {
-            console.info(`Unimplemented command: peer sync ${peerId}`);
-        }
-
-        async onUnknownCommand([command = "unknown", ...args]: string[] = []): Promise<void> {
-            if (["q", "quit", "exit"].includes(command?.toLowerCase())) {
-                console.info("Goodbye!");
-                process.exit(0);
-            }
-            else {
-                console.error("Unknown command");
-            }
-        }
-
-        async onStartup() {
-            return await new Promise<void>((resolve, reject) => {
-                process.stdout.write("% ", err => {
-                    if (err) reject(err);
-                    else {
-                        resolve();
-                    }
-                });
-            });
-        }
-        afterEach = this.onStartup
-    };
-
+async function main(services: ServiceContainer): Promise<void> {
+    const commands: ShellCommandServer = new ShellCommandServer(services);
     await commands.useStream(process.stdin)
         .then(() => process.exit(0));
 }
 
-configureRoutes(express())
-    .then(app => (
-        new Promise<http.Server>(function(resolve)  {
-            server = app.listen(portNum, () => {
-                console.log(`Listening on port ${portNum}`);
-                resolve(server);
-            });
-        })
-    ))
-    .then(main)
+const commandLineArgs = parseCommandLineArgs(process.argv.slice(2));
+
+generateNewIdentity(commandLineArgs.root_dir)
+    .then(({ uniqueId, ...keyPair }) => {
+        // IMPORTANT: This line is to allow for self-signed certificates.
+        // Since we use TLS only for establishing an encrypted connection, not for validation,
+        // there is no need to validate the source. So, we set strict TLS to false.
+        process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0";
+
+        const {
+            root_dir: rootPath,
+            port: portNum,
+            discovery_port: discoveryPortNum,
+            in_memory: isInMemory,
+            verbose,
+        } = commandLineArgs;
+        const loggingOptions: LoggingOptions = {
+            logLevel: "info",
+            loggingLocation: path.resolve(rootPath, "munkey.log"),
+            useConsole: verbose,
+        };
+
+        const LocalDB = configurePlugins<DatabaseDocument, DatabasePluginAttachment>(
+            {
+                prefix: rootPath + path.sep + "munkey" + path.sep,
+                db: isInMemory ? MemDown : undefined,
+            } as PouchDB.Configuration.DatabaseConfiguration,
+            getEncryptionPlugin(PouchDB),
+        );
+        const AdminDB = configurePlugins<AdminDatabaseDocument, {}>(
+            {
+                prefix: rootPath + path.sep + "admin" + path.sep,
+                db: isInMemory ? MemDown : undefined,
+            } as PouchDB.Configuration.DatabaseConfiguration,
+        );
+        const getLocalDB = function(name, options) {
+            return new LocalDB(name, options) as PouchDB.Database<DatabaseDocument> & DatabasePluginAttachment;
+        };
+
+        return Promise.resolve(configureLogging({
+                vault: new VaultService(getLocalDB),
+                identity: new IdentityService(uniqueId, keyPair),
+                activity: new ActivityService(bonjour()),
+                connection: new ConnectionService(),
+                web: new WebService(express()),
+                admin: new AdminService(new AdminDB("info")),
+            }, loggingOptions))
+            .then(services => configureRoutes(services, {
+                portNum,
+                rootPath,
+                discoveryPortNum,
+                pouch: LocalDB,
+            }));
+    })
+    .then(services => main(services))
     .catch(err => {
         console.error(err);
-        if (server !== null) {
-            server = server.close(serverErr => {
-                console.error(serverErr);
-            });
-        }
     });

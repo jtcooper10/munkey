@@ -3,19 +3,25 @@
         "module": "commonjs",
         "esModuleInterop": true,
         "moduleResolution": "node",
-        "target": "ES6",
+        "target": "ESNext",
         "composite": true,
         "sourceMap": true,
         "types": [
             "node"
         ],
         "lib": [
-            "es2015"
+            "es2015",
+            "dom"
         ],
         "outDir": "bin"
     },
     "include": [
         "munkey.ts",
-        "command.ts"
+        "command.ts",
+        "discovery.ts",
+        "logging.ts",
+        "configure.ts",
+        "services/**/*.ts",
+        "pouch/**/*.ts"
     ]
 }
