@@ -41,6 +41,7 @@ class SilentTerminal {
 
 class ShellCommandServer extends CommandServer {
     private term: SilentTerminal;
+    private activeVault: string | null;
 
     constructor(services: ServiceContainer) {
         super(services);
@@ -53,8 +54,12 @@ class ShellCommandServer extends CommandServer {
             return Promise.resolve(null);
         }
         return Promise.resolve(stream => this
-            .promptPasswordCreation(stream)
-            .then(password => this.onCreateVault(vaultName, new EncryptionCipher(password))));
+                .promptPasswordCreation(stream)
+                .then(password => this.onCreateVault(vaultName, new EncryptionCipher(password)))
+                .then(() => {
+                    this.activeVault = vaultName;
+                    return null;
+                }));
     }
 
     public vaultLogin([vaultName = null]: string[] = []): Promise<CommandReadCallback> {
@@ -72,15 +77,24 @@ class ShellCommandServer extends CommandServer {
             console.error("Missing name for vault deletion");
             return Promise.resolve(null);
         }
-        return this.onDeleteVault(vaultName).then(null);
+        return this.onDeleteVault(vaultName).then(() => {
+            this.activeVault = null;
+            return null;
+        });
     }
 
     public vaultUse([vaultName = null]: string[] = []): Promise<CommandReadCallback> {
         if (vaultName === null) {
             console.error("Missing name for vault switch");
-            return Promise.resolve(null);
         }
-        return this.onUseVault(vaultName).then(null);
+        else if (!this.services.vault.getVaultByName(vaultName)) {
+            console.error(`No vault found with name ${vaultName}`);
+        }
+        else {
+            this.activeVault = vaultName;
+            console.info(`Active vault set to ${this.activeVault}`);
+        }
+        return Promise.resolve(null);
     }
 
     public vaultSet([entryKey = null, entryData = null]: string[] = []): Promise<CommandReadCallback> {
@@ -88,7 +102,12 @@ class ShellCommandServer extends CommandServer {
             console.error(`Missing ${entryKey ? "data" : "key name"} for entry creation`);
             return Promise.resolve(null);
         }
-        return this.onSetVaultEntry(entryKey, entryData).then(null);
+        else if (!this.activeVault) {
+            console.error("No vault selected");
+            return Promise.resolve(null);
+        }
+
+        return this.onSetVaultEntry(this.activeVault, entryKey, entryData).then(null);
     }
 
     public vaultGet([entryKey = null]: string[]): Promise<CommandReadCallback> {
@@ -96,7 +115,12 @@ class ShellCommandServer extends CommandServer {
             console.error("Missing key name for entry retrieval");
             return Promise.resolve(null);
         }
-        return this.onGetVaultEntry(entryKey).then(null);
+        else if (!this.activeVault) {
+            console.error("No vault selected");
+            return Promise.resolve(null);
+        }
+
+        return this.onGetVaultEntry(this.activeVault, entryKey).then(null);
     }
 
     public vaultLink([linkTarget = null, ...rest]: string[]): Promise<CommandReadCallback> {
@@ -149,6 +173,34 @@ class ShellCommandServer extends CommandServer {
             }
             await this.onVaultLink(hostname, portNum, vaultName, subArg, new EncryptionCipher(derivedKey));
         });
+    }
+
+    public async vaultList(): Promise<null> {
+        const vaultList = await this.onListVaults();
+
+        if (!vaultList.success) {
+            console.error(vaultList.message);
+        }
+        else {
+            promptList(vaultList.data.vaults, "Active Vaults");
+            for (let vault of vaultList.data.vaults) {
+                console.info(
+                    ` ${vault.nickname === this.activeVault ? "*" : " "} \"${vault.nickname}\" = Vault[${vault.vaultId}]`);
+            }
+
+            promptList(vaultList.data.connections, "Remote Vaults");
+            for (let [name, url] of vaultList.data.connections) {
+                console.info(`   ${url} = RemoteVault[${name}]`);
+            }
+        }
+
+        function promptList(list: any[], message: string) {
+            if (list.length > 0) {
+                console.info(`:: :: ${message} :: ::`);
+            }
+        }
+
+        return Promise.resolve(null);
     }
 
     public peerLink([connection = null]: string[] = []): Promise<CommandReadCallback> {
@@ -223,7 +275,7 @@ class ShellCommandServer extends CommandServer {
             "use": this.vaultUse.bind(this),
             "set": this.vaultSet.bind(this),
             "get": this.vaultGet.bind(this),
-            "list": this.onListVaults.bind(this),
+            "list": this.vaultList.bind(this),
             "link": this.vaultLink.bind(this),
         },
         "link": {
@@ -250,7 +302,7 @@ class ShellCommandServer extends CommandServer {
             input: stream,
             output: this.term.createWritable(),
             terminal: true,
-            prompt: `(${this.services.vault.getActiveVaultName() ?? "mkey"}) % `,
+            prompt: `(${this.activeVault ?? "mkey"}) % `,
         });
 
         const commandParseHandler = async function (input: string) {
@@ -271,7 +323,7 @@ class ShellCommandServer extends CommandServer {
                 .catch(err => console.error(err));
 
             commandInterface.addListener("line", commandParseHandler);
-            commandInterface.setPrompt(`(${this.services.vault.getActiveVaultName() ?? "mkey"}) % `);
+            commandInterface.setPrompt(`(${this.activeVault ?? "mkey"}) % `);
             commandInterface.prompt();
         }.bind(this);
 

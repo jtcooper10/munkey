@@ -110,14 +110,12 @@ class VaultDatabase {
 export default class VaultService extends Service {
     private readonly vaultMap: Map<string, VaultDatabase>;
     private readonly vaultIdMap: Map<string, string>;
-    private activeVault: [string | null, string | null];
     private adminService?: AdminService;
 
     constructor(private Vault: DatabaseConstructor<VaultDB, DatabaseDocument>) {
         super();
         this.vaultMap = new Map<string, VaultDatabase>();
         this.vaultIdMap = new Map<string, string>();
-        this.activeVault = [null, null];
         this.adminService = null;
     }
 
@@ -156,7 +154,6 @@ export default class VaultService extends Service {
                 .then(newVault => {
                     this.vaultIdMap.set(vaultName, vaultId ??= randomUUID());
                     this.vaultMap.set(vaultId, newVault);
-                    this.activeVault = [vaultName, vaultId];
                     this.adminService?.recordVaultCreation(newVault.name, vaultId)
                         .catch(err => this.logger.error("Could not update admin records: ", err));
                     return this.vaultIdMap.get(vaultName);
@@ -184,7 +181,6 @@ export default class VaultService extends Service {
         if (vault) {
             this.logger.info("Deleting...");
 
-            this.activeVault = [null, null];
             this.vaultMap.delete(vaultId);
             this.vaultIdMap.delete(vaultName);
             await vault.destroy()
@@ -226,33 +222,6 @@ export default class VaultService extends Service {
 
     public getVaultById(vaultId: string): VaultDatabase | null {
         return this.vaultMap.get(vaultId) || null;
-    }
-
-    public setActiveVaultById(vaultId: string, vaultName: string = "unknown"): VaultDatabase | null {
-        const vault = this.vaultMap.get(vaultId) || null;
-        if (vault) {
-            this.activeVault = [vaultName, vaultId];
-        }
-        return vault;
-    }
-
-    public setActiveVaultByName(vaultName: string): VaultDatabase | null {
-        const vaultId: string = this.vaultIdMap.get(vaultName) || null;
-        return this.setActiveVaultById(vaultId, vaultName);
-    }
-
-    public getActiveVault(): VaultDatabase | null {
-        return this.vaultMap.get(this.getActiveVaultId()) || null;
-    }
-
-    public getActiveVaultId(): string | null {
-        const [vaultName, vaultId] = this.activeVault;
-        return vaultId;
-    }
-
-    public getActiveVaultName(): string | null {
-        const [vaultName] = this.activeVault;
-        return vaultName;
     }
 
     /**

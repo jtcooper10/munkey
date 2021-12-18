@@ -6,7 +6,7 @@
  */
 
 import { pbkdf2 } from "crypto";
-import { DeviceDiscoveryDecl, PeerIdentityDecl } from "../discovery";
+import { DeviceDiscoveryDecl, PeerIdentityDecl, PeerVaultDecl } from "../discovery";
 import { ServiceContainer } from "../services";
 import { EncryptionCipher } from "../pouch";
 import { Option, Result, Status } from "../error";
@@ -60,16 +60,6 @@ abstract class CommandServer {
         }
     }
 
-    // MOVE
-    async onUseVault(vaultName: string): Promise<void> {
-        console.info(`Switching to vault ${vaultName}`);
-
-        if (!this.services.vault.getVaultByName(vaultName)) {
-            return console.error(`Cannot switch to vault ${vaultName} (does not exist)`);
-        }
-        this.services.vault.setActiveVaultByName(vaultName);
-    }
-
     // UPDATE: should accept a password, authenticate it, and return the result.
     async onVaultLogin(vaultName: string, encryptionKey: Buffer) {
         const vaultDatabase = this.services.vault.getVaultByName(vaultName);
@@ -77,7 +67,6 @@ abstract class CommandServer {
             return console.error(`Cannot login to vault ${vaultName} (does not exist)`);
         }
         vaultDatabase?.setPassword(new EncryptionCipher(encryptionKey));
-        this.services.vault.setActiveVaultByName(vaultName);
     }
 
     async onDeleteVault(vaultName: string): Promise<void> {
@@ -88,41 +77,38 @@ abstract class CommandServer {
         await this.services.vault.deleteVaultByName(vaultName);
     }
 
-    // UPDATE: instead of just printing the vaults,
-    // it should instead enumerate them and return a list.
-    async onListVaults(): Promise<void> {
-        const activeVaultId = this.services.vault.getActiveVaultId();
-        let atLeastOne: boolean = false, vaultsFound: number = 0;
+    async onListVaults(): Promise<Option<{ vaults: PeerVaultDecl[], connections: [string, string][] }>> {
+        const vaultList = this.services.vault.getActiveVaultList();
+        const connectionList: [string, string][] = Array.from(this.services.connection.getAllConnections());
+        const data = {
+            vaults: await vaultList,
+            connections: connectionList,
+        };
 
-        for (let vault of await this.services.vault.getActiveVaultList()) {
-            if (!atLeastOne) {
-                atLeastOne = true;
-                console.info(":: :: Active  Vaults :: ::");
-            }
-            vaultsFound++;
-            console.info(
-                ` ${vault.vaultId === activeVaultId ? "*" : " "} \"${vault.nickname}\" = Vault[${vault.vaultId}]`);
+        if (data.vaults.length > 0 || data.connections.length > 0) {
+            return {
+                status: Status.SUCCESS,
+                success: true,
+                message: "Active vault enumeration was successful",
+                data,
+                unpack: () => data,
+            };
         }
-
-        atLeastOne = false;
-        for (let [name, url] of this.services.connection.getAllConnections()) {
-            if (!atLeastOne) {
-                atLeastOne = true;
-                console.info(":: :: Remote  Vaults :: ::");
-            }
-            vaultsFound++;
-            console.info(`   ${url} = RemoteVault[${name}]`);
-        }
-
-        if (vaultsFound === 0) {
-            console.error("No vaults found!");
+        else {
+            return {
+                status: Status.FAILURE,
+                success: false,
+                message: "No local or remote vaults found",
+                data: null,
+                unpack: option => option,
+            };
         }
     }
 
     // UPDATE: instead of setting a single value,
     // it should accept an entirely new vault to attach.
-    async onSetVaultEntry(entryKey: string, data: string): Promise<void> {
-        const vault = this.services.vault.getActiveVault();
+    async onSetVaultEntry(vaultName: string, entryKey: string, data: string): Promise<void> {
+        const vault = this.services.vault.getVaultByName(vaultName);
         if (vault === null) {
             console.error("No vault selected; please select or create a vault");
             return Promise.resolve();
@@ -135,14 +121,10 @@ abstract class CommandServer {
     }
 
     // REMOVE: use `onVaultLogin` exclusively.
-    async onGetVaultEntry(entryKey: string): Promise<void> {
-        const vaultId: string = this.services.vault.getActiveVaultId();
-        if (vaultId === null) {
-            console.error("No vault selected; please select or create a vault");
-            return Promise.resolve();
-        }
+    async onGetVaultEntry(vaultName: string, entryKey: string): Promise<void> {
+        const vault = this.services.vault.getVaultByName(vaultName);
 
-        const data: string | null = await this.services.vault.getVaultEntry(vaultId, entryKey);
+        const data: string | null = await vault.getEntry(entryKey);
         if (!data) {
             console.error("Vault entry not found");
         }
