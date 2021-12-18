@@ -6,9 +6,10 @@
  */
 
 import { pbkdf2 } from "crypto";
-import { PeerIdentityDecl } from "../discovery";
+import { DeviceDiscoveryDecl, PeerIdentityDecl } from "../discovery";
 import { ServiceContainer } from "../services";
 import { EncryptionCipher } from "../pouch";
+import { Option, Result, Status } from "../error";
 
 /**
  * Container for managing and dispatching external commands to the application.
@@ -190,59 +191,76 @@ abstract class CommandServer {
         }
     }
 
-    // UPDATE: accept a port to listen on, move selection logic to shell, add return value
-    async onLinkUp(): Promise<void> {
-        await this.services.web.listen()
-            .catch(err => {
-                if (err.code === "EADDRINUSE") {
-                    console.error(`Cannot open server, port is in use`);
-                }
-                else {
-                    console.error("Failed to open server");
-                }
-            });
+    async onLinkUp(portNum: number): Promise<Option<number>> {
+        return this.services.web.listen({ portNum })
+            .then(() => ({
+                status: Status.SUCCESS,
+                success: true,
+                message: `Server now listening on port ${portNum}`,
+                data: portNum,
+                unpack: () => portNum,
+            }))
+            .catch(err => ({
+                status: Status.FAILURE,
+                success: false,
+                message: err?.code === "EADDRINUSE"
+                    ? "Cannot open server, port is in use"
+                    : "An unknown error occurred while trying to stop the server",
+                data: null,
+                unpack: (option) => option,
+            }));
     }
 
-    // UPDATE: remove logs, add return value
-    async onLinkDown(): Promise<void> {
-        await this.services.web.close()
-            .catch(err => {
-                if (err?.code === "ERR_SERVER_NOT_RUNNING") {
-                    console.error("Cannot stop server (not running)");
-                }
-                else {
-                    console.error("An unknown error occurred while trying to stop the server");
-                }
-            });
+    async onLinkDown(): Promise<Result> {
+        return this.services.web.close()
+            .then(() => ({
+                status: Status.SUCCESS,
+                success: true,
+                message: "Server closed successfully",
+            }))
+            .catch(err => ({
+                status: Status.FAILURE,
+                success: false,
+                message: err?.code === "ERR_SERVER_NOT_RUNNING"
+                    ? "Cannot stop server (not running)"
+                    : "An unknown error occurred while trying to stop the server",
+            }));
     }
 
-    // MOVE
-    async onPeerLink(hostname: string, portNum: number): Promise<void> {
-        console.info(`Connecting to ${hostname}, port ${portNum}`);
+    async onPeerLink(hostname: string, portNum: number): Promise<Result> {
         const response: PeerIdentityDecl|null = await this.services.activity
             .publishDevice({ hostname, portNum });
 
-        if (response !== null) {
-            console.info(`Successfully linked with peer ${hostname}:${portNum}`);
-        }
-        else {
-            console.info(`Failed to link with peer ${hostname}:${portNum}`);
-        }
+        return response === null
+            ? { status: Status.FAILURE, success: false, message: `Failed to link with peer ${hostname}:${portNum}` }
+            : { status: Status.SUCCESS, success: true, message: `Successfully linked with peer ${hostname}:${portNum}` };
     }
 
-    // MOVE
-    async onPeerList(): Promise<void> {
-        let atLeastOne: boolean = false;
-        for (let [{ hostname, portNum }, identity] of this.services.activity.getAllDevices()) {
-            atLeastOne = true;
-            console.info(` Peer[${identity.uniqueId}]@${hostname}:${portNum}`);
-            for (let vault of identity.vaults) {
-                console.info(`\t* "${vault.nickname}": Vault[${vault.vaultId}]`);
-            }
-        }
+    async onPeerList(): Promise<Option<(PeerIdentityDecl & DeviceDiscoveryDecl)[]>> {
+        const deviceList = Array.from(this.services.activity.getAllDevices()).map(([peer, device]) => ({
+                uniqueId: device.uniqueId,
+                hostname: peer.hostname,
+                portNum: peer.portNum,
+                vaults: device.vaults,
+            }));
 
-        if (!atLeastOne) {
-            console.error("No peers found!");
+        if (deviceList?.length > 0) {
+            return {
+                status: Status.SUCCESS,
+                success: true,
+                message: "Peer list enumerated successfully",
+                data: deviceList,
+                unpack: () => deviceList,
+            };
+        }
+        else {
+            return {
+                status: Status.FAILURE,
+                success: false,
+                message: "No peers found",
+                data: null,
+                unpack: option => option,
+            };
         }
     }
 

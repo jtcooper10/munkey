@@ -5,6 +5,7 @@ import CommandServer from "./CommandServer";
 import { DeviceDiscoveryDecl } from "../discovery";
 import { ServiceContainer } from "../services";
 import { EncryptionCipher } from "../pouch";
+import { Result } from "../error";
 
 type CommandReadCallback = ((sessionInterface: Interface) => Promise<any>) | null;
 type CommandEntry = ((args: string[]) => Promise<CommandReadCallback>) | CommandSet;
@@ -165,7 +166,53 @@ class ShellCommandServer extends CommandServer {
             return Promise.resolve(null);
         }
 
-        return this.onPeerLink(hostname, portNum).then(null);
+        console.info(`Connecting to ${hostname}, port ${portNum}`);
+        return this.onPeerLink(hostname, portNum).then(result => {
+            if (result.success) {
+                console.info(result.message);
+            }
+            else {
+                console.error(result.message);
+            }
+            return null;
+        });
+    }
+
+    public async peerList(): Promise<void> {
+        const peerList = await this.onPeerList();
+
+        if (!peerList.success) {
+            console.error(`Failed to resolve peer list: ${peerList.message}`);
+            return;
+        }
+
+        for (let { hostname, portNum, uniqueId, vaults } of peerList.unpack([])) {
+            console.info(` Peer[${uniqueId}]@${hostname}:${portNum}`);
+            for (let vault of vaults) {
+                console.info(`\t* "${vault.nickname}": Vault[${vault.vaultId}]`);
+            }
+        }
+    }
+
+    public async linkUp([portNum = null]: string[] = []): Promise<void> {
+        const portNumParsed: number = parseInt(portNum) || 8000;
+        const result = await this.onLinkUp(portNumParsed);
+        if (result.success) {
+            console.info(`Server now listening on port ${result.unpack(portNumParsed)}`);
+        }
+        else {
+            console.error(result.message);
+        }
+    }
+
+    public async linkDown(): Promise<void> {
+        const serverResult: Result = await this.onLinkDown();
+        if (serverResult.success) {
+            console.log("Server closed successfully");
+        }
+        else {
+            console.error(`Failed to close server: ${serverResult.message}`);
+        }
     }
 
     private commands: CommandSet = {
@@ -180,12 +227,12 @@ class ShellCommandServer extends CommandServer {
             "link": this.vaultLink.bind(this),
         },
         "link": {
-            "up": this.onLinkUp.bind(this),
-            "down": this.onLinkDown.bind(this),
+            "up": this.linkUp.bind(this),
+            "down": this.linkDown.bind(this),
         },
         "peer": {
             "link": this.peerLink.bind(this),
-            "list": this.onPeerList.bind(this),
+            "list": this.peerList.bind(this),
         }
     }
 

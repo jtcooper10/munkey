@@ -1,4 +1,4 @@
-import {DeviceDiscoveryDecl, isPeerLinkResponse, PeerIdentityDecl, PeerLinkResponse} from "../discovery";
+import { DeviceDiscoveryDecl, isPeerLinkResponse, PeerIdentityDecl, PeerLinkResponse } from "../discovery";
 import * as bonjour from "bonjour";
 import https from "https";
 import http from "http";
