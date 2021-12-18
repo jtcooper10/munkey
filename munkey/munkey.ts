@@ -40,7 +40,7 @@ import {
     DatabasePluginAttachment,
     getEncryptionPlugin,
 } from "./configure";
-import { ShellCommandServer } from "./command";
+import { ShellCommandServer } from "./server";
 import {
     generateNewIdentity,
     ServiceContainer,

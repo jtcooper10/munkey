@@ -22,6 +22,7 @@
         "logging.ts",
         "configure.ts",
         "services/**/*.ts",
-        "pouch/**/*.ts"
+        "pouch/**/*.ts",
+        "server/**/*.ts"
     ]
 }
