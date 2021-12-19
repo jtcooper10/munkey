@@ -7,9 +7,9 @@
 
 import { pbkdf2 } from "crypto";
 import { DeviceDiscoveryDecl, PeerIdentityDecl, PeerVaultDecl } from "../discovery";
-import { ServiceContainer } from "../services";
+import { ServiceContainer, VaultOption, VaultStatus } from "../services";
 import { EncryptionCipher } from "../pouch";
-import { Option, Result, Status } from "../error";
+import { failItem, Option, Result, Status } from "../error";
 
 /**
  * Container for managing and dispatching external commands to the application.
@@ -69,12 +69,16 @@ abstract class CommandServer {
         vaultDatabase?.setPassword(new EncryptionCipher(encryptionKey));
     }
 
-    async onDeleteVault(vaultName: string): Promise<void> {
-        if (!this.services.vault.getVaultByName(vaultName)) {
-            // LOG
-            return console.error(`Cannot delete vault ${vaultName} (does not exist)`);
+    async onDeleteVault(vaultName: string): Promise<VaultOption<string>> {
+        const vault = this.services.vault._getVaultByName(vaultName);
+        if (!vault) {
+            return failItem<string, VaultStatus>({
+                message: `Could not resolve vault name ${vaultName}`,
+                status: VaultStatus.NOT_FOUND,
+            });
         }
-        await this.services.vault.deleteVaultByName(vaultName);
+
+        return vault.delete();
     }
 
     async onListVaults(): Promise<Option<{ vaults: PeerVaultDecl[], connections: [string, string][] }>> {

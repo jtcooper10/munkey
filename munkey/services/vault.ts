@@ -3,9 +3,10 @@ import PouchDB from "pouchdb";
 import winston from "winston";
 
 import AdminService from "./admin";
-import Service, { VaultDB, DatabaseDocument } from "./baseService";
+import Service, { DatabaseDocument, VaultDB } from "./baseService";
 import { PeerVaultDecl } from "../discovery";
-import {EncryptionCipher} from "../pouch";
+import { EncryptionCipher } from "../pouch";
+import { failItem, Option, Result, successItem } from "../error";
 
 
 export type DatabaseConstructor<T extends PouchDB.Database<D>, D>
@@ -101,6 +102,18 @@ class VaultDatabase {
         this.vault.useEncryption(cipher);
     }
 }
+
+export enum VaultStatus {
+    NOT_FOUND = "VAULT_NOT_FOUND",
+}
+
+export type VaultResult = Result<VaultStatus>;
+export type VaultOption<T> = Option<T, VaultStatus>;
+
+export interface Vault {
+    delete: () => Promise<VaultOption<string>>;
+}
+
 
 /**
  * @name VaultService
@@ -213,6 +226,71 @@ export default class VaultService extends Service {
     public getVaultByName(vaultName: string): VaultDatabase | null {
         let vaultId: string | null = this.vaultIdMap.get(vaultName) || null;
         return vaultId && this.getVaultById(vaultId);
+    }
+
+    public _getVaultByName(vaultName: string): Vault | null {
+        const vaultId: string | null = this.vaultIdMap.get(vaultName) ?? null;
+
+        return vaultId !== null
+            ? this._getVaultById(vaultId)
+            : null;
+    }
+
+    public _getVaultById(vaultId: string): Vault | null {
+        const deleteAllNamedEntries = () => {
+            const mappedNames: string[] = [];
+            for (let [name, id] of this.vaultIdMap.entries()) {
+                if (id === vaultId) {
+                    mappedNames.push(name);
+                    this.logger.info("Vault name entry %s queued for deletion", name, { vaultId });
+                }
+            }
+            mappedNames.map(name => {
+                if (!this.vaultIdMap.delete(name))
+                    this.logger.warning("Could not delete vault name entry for %s; no longer exists", name, { vaultId });
+            });
+        };
+
+        const vault = this.vaultMap.get(vaultId);
+        if (!vault) {
+            return null;
+        }
+
+        // ========== VAULT CONTEXT FUNCTIONS ==========
+        // This may need to be abstracted away into a class,
+        // rather than an interface, in the future.
+        // For now, the ability to destructure only
+        // the functions you need seems worth it.
+
+        const deleteVault: () => Promise<VaultOption<string>> = async () => {
+            this.logger.info("Deleting...");
+
+            // Remove all named entries before proceeding with deletion.
+            // While any existing references will be invalidated,
+            // no new ones can be extracted.
+            deleteAllNamedEntries();
+            if (this.vaultMap.delete(vaultId))
+                this.logger.info("Vault map entry %s queued for deletion", vaultId);
+            else
+                this.logger.warning("Deleted vault %s not present in vault map");
+
+            try {
+                await vault.destroy();
+                this.logger.info("Vault %s deleted successfully", vaultId);
+            }
+            catch (err) {
+                this.logger.error("Failed to delete database with ID %s", vaultId, err);
+                return failItem({ message: `Failed to delete vault ${vaultId}` });
+            }
+
+            return successItem(vaultId, {
+                message: `Vault ${vaultId} deleted successfully`
+            });
+        };
+
+        return {
+            delete: deleteVault,
+        };
     }
 
     public async getVaultEntry(vaultId: string, entryKey: string): Promise<string | null | undefined> {

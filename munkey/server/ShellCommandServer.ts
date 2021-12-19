@@ -72,15 +72,22 @@ class ShellCommandServer extends CommandServer {
             .then(password => this.onVaultLogin(vaultName, password)));
     }
 
-    public vaultDelete([vaultName = null]: string[] = []): Promise<CommandReadCallback> {
+    public async vaultDelete([vaultName = null]: string[] = []): Promise<CommandReadCallback> {
         if (vaultName === null) {
             console.error("Missing name for vault deletion");
             return Promise.resolve(null);
         }
-        return this.onDeleteVault(vaultName).then(() => {
-            this.activeVault = null;
-            return null;
-        });
+
+        const vaultResult = await this.onDeleteVault(vaultName);
+        if (vaultResult.success) {
+            console.info(`Successfully deleted vault ${vaultName} (${vaultResult.unpack("[unknown_id]")})`);
+            if (vaultName === this.activeVault)
+                this.activeVault = null;
+        }
+        else
+            console.error("Failed to delete vault: ", vaultResult.message);
+
+        return null;
     }
 
     public vaultUse([vaultName = null]: string[] = []): Promise<CommandReadCallback> {
