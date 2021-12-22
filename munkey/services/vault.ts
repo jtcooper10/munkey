@@ -5,7 +5,6 @@ import winston from "winston";
 import AdminService from "./admin";
 import Service, { DatabaseDocument, VaultDB } from "./baseService";
 import { PeerVaultDecl } from "../discovery";
-import { EncryptionCipher } from "../pouch";
 import { failItem, Option, Result, successItem } from "../error";
 
 
@@ -22,7 +21,7 @@ class VaultDatabase {
     }
 
     public static async create(vault: VaultDB, logger?: winston.Logger): Promise<VaultDatabase> {
-        await vault.getEncryptedAttachment("vault", "passwords.json")
+        await vault.getAttachment("vault", "passwords.json")
             .then(() => {
                 logger?.info("Database loaded successfully: %s", vault.name);
             })
@@ -30,7 +29,7 @@ class VaultDatabase {
                 if (err.status === 404) {
                     logger?.info("Database load failed; creating new instance: %s", vault.name);
                     const blankAttachment = Buffer.from(JSON.stringify({}));
-                    return vault.putEncryptedAttachment("vault", "passwords.json", blankAttachment, "text/plain");
+                    return vault.putAttachment("vault", "passwords.json", blankAttachment, "text/plain");
                 }
                 return null;
             });
@@ -46,60 +45,27 @@ class VaultDatabase {
         return this.vault.name;
     }
 
-    public getContent(): Promise<{ [key: string]: string } | null> {
-        return this.vault.getEncryptedAttachment("vault", "passwords.json")
-            .then((attachment: Buffer) => JSON.parse(attachment.toString()))
+    public getContent(): Promise<Buffer | null> {
+        return this.vault.getAttachment("vault", "passwords.json")
             .catch(err => {
-                if (err?.code === "ERR_OSSL_EVP_BAD_DECRYPT") {
-                    this.logger?.warn("Could not decrypt database contents");
-                }
-                else {
-                    this.logger?.error("An error occurred while decrypting database contents: %s", err);
+                if (err) {
+                    this.logger?.error("An error occurred while retrieving database contents", err);
                 }
                 return null;
             });
     }
 
-    public async getEntry(entryKey: string): Promise<string | null> {
-        const entries: { [key: string]: string } = (await this.getContent()) ?? {};
-        return entries[entryKey];
-    }
-
-    public async setEntry(entryKey: string, entryValue: string): Promise<string | null> {
-        let entries = await this.getContent();
-        if (entries === null) {
-            return null;
-        }
-
-        entries ??= {};
-        entries = { ...entries, [entryKey]: entryValue };
-
-        const { _rev } = await this.vault
+    public setContent(content: Buffer): Promise<boolean> {
+        return content && this.vault
             .get("vault")
-            .catch(() => ({ _rev: null }));
-
-        if (_rev) {
-            await this.vault
-                .putEncryptedAttachment("vault", "passwords.json", _rev,
-                    Buffer.from(JSON.stringify(entries)), "text/plain")
-                .catch(err => {
-                    if (["ERR_OSSL_EVP_BAD_DECRYPT"].includes(err?.code)) {
-                        this.logger?.warn("Failed to encrypt database (bad password)");
-                    }
-                    else {
-                        this.logger?.error("Failed to encrypt database");
-                    }
-                    return null;
-                });
-
-            return entryValue;
-        }
-
-        return null;
-    }
-
-    public setPassword(cipher: EncryptionCipher) {
-        this.vault.useEncryption(cipher);
+            .then(({ _rev }) => this.vault.putAttachment("vault", "passwords.json", _rev, content, "text/plain"))
+            .then(result => result.ok.valueOf())
+            .catch(err => {
+                if (err) {
+                    this.logger?.error("An error occurred while updating database contents", err);
+                }
+                return false;
+            });
     }
 }
 
@@ -142,10 +108,9 @@ export default class VaultService extends Service {
      * The vault is issued a new, randomly generated UUID on creation.
      * @param {string} vaultId Suggested UUID for the new vault.
      * Recommended only when the vault you are creating already exists.
-     * @param {EncryptionCipher} cipher Symmetric key used to encrypt/decrypt the contents of the vault.
      * @returns {string|null} UUID of new (or existing) PouchDB database.
      */
-    public createVault(vaultName: string, vaultId?: string | null, cipher?: EncryptionCipher | null): Promise<string | null>
+    public createVault(vaultName: string, vaultId?: string | null): Promise<string | null>
     {
         if (!vaultName) {
             throw new ReferenceError(`Invalid vault name: ${vaultName}`);
@@ -158,10 +123,8 @@ export default class VaultService extends Service {
             throw new Error(`Name conflict; local nickname ${vaultName} already exists`);
         }
         else if (!vault) {
+            console.log("NEW VAULT");
             const vaultDb = this.Vault(vaultName);
-            if (cipher) {
-                vaultDb.useEncryption(cipher);
-            }
 
             return VaultDatabase.create(vaultDb, this.logger)
                 .then(newVault => {
@@ -293,11 +256,6 @@ export default class VaultService extends Service {
         };
     }
 
-    public async getVaultEntry(vaultId: string, entryKey: string): Promise<string | null | undefined> {
-        const vault = this.getVaultById(vaultId) ?? null;
-        return vault?.getEntry(entryKey);
-    }
-
     public getVaultById(vaultId: string): VaultDatabase | null {
         return this.vaultMap.get(vaultId) || null;
     }
@@ -338,10 +296,6 @@ export default class VaultService extends Service {
             vaultList.push(vault);
         }
         return vaultList;
-    }
-
-    public getVaultConstructor(): DatabaseConstructor<VaultDB, DatabaseDocument> {
-        return this.Vault;
     }
 }
 

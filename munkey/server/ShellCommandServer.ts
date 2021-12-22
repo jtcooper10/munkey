@@ -4,7 +4,6 @@ import { Readable, Writable } from "stream";
 import CommandServer from "./CommandServer";
 import { DeviceDiscoveryDecl } from "../discovery";
 import { ServiceContainer } from "../services";
-import { EncryptionCipher } from "../pouch";
 import { Result } from "../error";
 
 type CommandReadCallback = ((sessionInterface: Interface) => Promise<any>) | null;
@@ -55,7 +54,7 @@ class ShellCommandServer extends CommandServer {
         }
         return Promise.resolve(stream => this
                 .promptPasswordCreation(stream)
-                .then(password => this.onCreateVault(vaultName, new EncryptionCipher(password)))
+                .then(() => this.onCreateVault(vaultName))
                 .then(() => {
                     this.activeVault = vaultName;
                     return null;
@@ -67,9 +66,9 @@ class ShellCommandServer extends CommandServer {
             console.error("Missing name for vault login");
             return Promise.resolve(null);
         }
-        return Promise.resolve(stream => this
-            .promptPasswordCreation(stream)
-            .then(password => this.onVaultLogin(vaultName, password)));
+
+        console.error("vault login: not implemented");
+        return Promise.resolve(null);
     }
 
     public async vaultDelete([vaultName = null]: string[] = []): Promise<CommandReadCallback> {
@@ -104,7 +103,7 @@ class ShellCommandServer extends CommandServer {
         return Promise.resolve(null);
     }
 
-    public vaultSet([entryKey = null, entryData = null]: string[] = []): Promise<CommandReadCallback> {
+    public async vaultSet([entryKey = null, entryData = null]: string[] = []): Promise<CommandReadCallback> {
         if (entryKey === null || entryData === null) {
             console.error(`Missing ${entryKey ? "data" : "key name"} for entry creation`);
             return Promise.resolve(null);
@@ -114,7 +113,28 @@ class ShellCommandServer extends CommandServer {
             return Promise.resolve(null);
         }
 
-        return this.onSetVaultEntry(this.activeVault, entryKey, entryData).then(null);
+        const vault = this.services.vault.getVaultByName(this.activeVault);
+        if (!vault) {
+            console.error(`Could not resolve vault ID: ${this.activeVault}`);
+            return Promise.resolve(null);
+        }
+
+        const content = await vault.getContent()
+            .then(content => ({ ...content ?? {}, [entryKey]: entryData }))
+            .catch(err => {
+                console.error(err);
+                return null;
+            });
+
+        try {
+            await vault.setContent(Buffer.from(JSON.stringify(content)));
+            console.info(`[${entryKey}] = ${entryData}`);
+        }
+        catch (err) {
+            console.error(err);
+        }
+
+        return Promise.resolve(null);
     }
 
     public vaultGet([entryKey = null]: string[]): Promise<CommandReadCallback> {
@@ -127,7 +147,19 @@ class ShellCommandServer extends CommandServer {
             return Promise.resolve(null);
         }
 
-        return this.onGetVaultEntry(this.activeVault, entryKey).then(null);
+        const vault = this.services.vault.getVaultByName(this.activeVault);
+        return vault.getContent()
+            .then(content => {
+                content = JSON.parse(content.toString());
+                if (content[entryKey]) {
+                    console.info(`[${entryKey}] = ${content[entryKey]}`);
+                }
+                else {
+                    console.info(`Vault has no entry ${entryKey}`);
+                }
+                return null;
+            })
+            .catch(err => console.error(err));
     }
 
     public vaultLink([linkTarget = null, ...rest]: string[]): Promise<CommandReadCallback> {
@@ -178,7 +210,7 @@ class ShellCommandServer extends CommandServer {
                 console.error("Bad password");
                 return null;
             }
-            const linkResult = await this.onVaultLink(hostname, portNum, vaultName, subArg, new EncryptionCipher(derivedKey));
+            const linkResult = await this.onVaultLink(hostname, portNum, vaultName, subArg);
             if (!linkResult.success) {
                 console.error(`Failed to link vault: ${linkResult.message ?? "An unknown error occurred"}`);
             }

@@ -38,7 +38,6 @@ import {
     configurePlugins,
     configureLogging,
     DatabasePluginAttachment,
-    getEncryptionPlugin,
 } from "./configure";
 import { ShellCommandServer } from "./server";
 import {
@@ -135,7 +134,6 @@ generateNewIdentity(commandLineArgs.root_dir)
                 prefix: rootPath + path.sep + "munkey" + path.sep,
                 db: isInMemory ? MemDown : undefined,
             } as PouchDB.Configuration.DatabaseConfiguration,
-            getEncryptionPlugin(PouchDB),
         );
         const AdminDB = configurePlugins<AdminDatabaseDocument, {}>(
             {
