@@ -7,9 +7,15 @@
 
 import { pbkdf2 } from "crypto";
 import { DeviceDiscoveryDecl, PeerIdentityDecl, PeerVaultDecl } from "../discovery";
-import { ServiceContainer, VaultOption, VaultStatus } from "../services";
+import {
+    ServiceContainer,
+    VaultOption,
+    VaultStatus,
+    ConnectionResult,
+    ConnectionStatus
+} from "../services";
 import { EncryptionCipher } from "../pouch";
-import { failItem, Option, Result, Status } from "../error";
+import { fail, failItem, Option, Result, Status } from "../error";
 
 /**
  * Container for managing and dispatching external commands to the application.
@@ -141,10 +147,8 @@ abstract class CommandServer {
     async onVaultLink(
         hostname: string, portNum: number,
         vaultName: string, vaultNickname: string = vaultName,
-        cipher: EncryptionCipher): Promise<void>
+        cipher: EncryptionCipher): Promise<ConnectionResult>
     {
-        console.info(`Connecting with vault ${vaultName}@${hostname}:${portNum}`);
-
         // There are 3 general cases for `vault link`:
         //  1. The remote database is new, not active nor inactive.
         //     This creates a new PouchDB database locally, syncs the remote one here.
@@ -169,11 +173,15 @@ abstract class CommandServer {
                     .catch(err => console.error(err));
             }
             catch (err) {
-                console.error("Failed to create local vault: ", err.message);
+                return fail(err?.message ?? null);
             }
         }
         else {
-            console.error(`Vault unavailable: ${vaultName}@${hostname}:${portNum}`);
+            return {
+                status: ConnectionStatus.UNAVAILABLE,
+                success: false,
+                message: `Remote vault ${vaultName}@${hostname}:${portNum} could not be resolved`,
+            };
         }
     }
 

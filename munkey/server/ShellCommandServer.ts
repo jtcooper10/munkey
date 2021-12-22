@@ -178,7 +178,10 @@ class ShellCommandServer extends CommandServer {
                 console.error("Bad password");
                 return null;
             }
-            await this.onVaultLink(hostname, portNum, vaultName, subArg, new EncryptionCipher(derivedKey));
+            const linkResult = await this.onVaultLink(hostname, portNum, vaultName, subArg, new EncryptionCipher(derivedKey));
+            if (!linkResult.success) {
+                console.error(`Failed to link vault: ${linkResult.message ?? "An unknown error occurred"}`);
+            }
         });
     }
 
