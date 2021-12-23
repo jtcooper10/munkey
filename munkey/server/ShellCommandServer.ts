@@ -5,6 +5,7 @@ import CommandServer from "./CommandServer";
 import { DeviceDiscoveryDecl } from "../discovery";
 import { ServiceContainer } from "../services";
 import { Result } from "../error";
+import { EncryptionCipher, createPbkdf2Cipher } from "../encryption";
 
 type CommandReadCallback = ((sessionInterface: Interface) => Promise<any>) | null;
 type CommandEntry = ((args: string[]) => Promise<CommandReadCallback>) | CommandSet;
@@ -40,11 +41,15 @@ class SilentTerminal {
 
 class ShellCommandServer extends CommandServer {
     private term: SilentTerminal;
-    private activeVault: string | null;
+    private activeVault: {
+        name: string;
+        cipher: EncryptionCipher;
+    } | null;
 
     constructor(services: ServiceContainer) {
         super(services);
         this.term = new SilentTerminal(false);
+        this.activeVault = null;
     }
 
     public vaultNew([vaultName = null]: string[] = []): Promise<CommandReadCallback> {
@@ -54,9 +59,14 @@ class ShellCommandServer extends CommandServer {
         }
         return Promise.resolve(stream => this
                 .promptPasswordCreation(stream)
-                .then(() => this.onCreateVault(vaultName))
-                .then(() => {
-                    this.activeVault = vaultName;
+                .then(async cipher => {
+                    const initialData: Buffer = await cipher.encrypt(Buffer.from(JSON.stringify({})));
+                    await this.onCreateVault(vaultName, initialData);
+
+                    this.activeVault = {
+                        name: vaultName,
+                        cipher,
+                    };
                     return null;
                 }));
     }
@@ -67,8 +77,14 @@ class ShellCommandServer extends CommandServer {
             return Promise.resolve(null);
         }
 
-        console.error("vault login: not implemented");
-        return Promise.resolve(null);
+        return Promise.resolve(stream => this.promptPasswordCreation(stream)
+            .then(async cipher => {
+                this.activeVault = {
+                    name: vaultName,
+                    cipher,
+                };
+                return null;
+            }));
     }
 
     public async vaultDelete([vaultName = null]: string[] = []): Promise<CommandReadCallback> {
@@ -80,27 +96,13 @@ class ShellCommandServer extends CommandServer {
         const vaultResult = await this.onDeleteVault(vaultName);
         if (vaultResult.success) {
             console.info(`Successfully deleted vault ${vaultName} (${vaultResult.unpack("[unknown_id]")})`);
-            if (vaultName === this.activeVault)
+            if (vaultName === this.activeVault?.name)
                 this.activeVault = null;
         }
         else
             console.error("Failed to delete vault: ", vaultResult.message);
 
         return null;
-    }
-
-    public vaultUse([vaultName = null]: string[] = []): Promise<CommandReadCallback> {
-        if (vaultName === null) {
-            console.error("Missing name for vault switch");
-        }
-        else if (!this.services.vault.getVaultByName(vaultName)) {
-            console.error(`No vault found with name ${vaultName}`);
-        }
-        else {
-            this.activeVault = vaultName;
-            console.info(`Active vault set to ${this.activeVault}`);
-        }
-        return Promise.resolve(null);
     }
 
     public async vaultSet([entryKey = null, entryData = null]: string[] = []): Promise<CommandReadCallback> {
@@ -113,25 +115,49 @@ class ShellCommandServer extends CommandServer {
             return Promise.resolve(null);
         }
 
-        const vault = this.services.vault.getVaultByName(this.activeVault);
+        const vault = this.services.vault.getVaultByName(this.activeVault?.name);
         if (!vault) {
             console.error(`Could not resolve vault ID: ${this.activeVault}`);
             return Promise.resolve(null);
         }
 
-        const content = await vault.getContent()
-            .then(content => ({ ...content ?? {}, [entryKey]: entryData }))
+        let content: { [key: string]: any } | null = await vault.getContent()
+            .then(async content => {
+                if (!content)
+                    return {};
+
+                content = await this.activeVault?.cipher.decrypt(content);
+                if (!content) {
+                    console.error("Bad password! Use the command 'vault login' to try a different password.");
+                    return null;
+                }
+
+                try {
+                    return JSON.parse(content.toString());
+                }
+                catch {
+                    console.error("Database contents are corrupt!");
+                    return null;
+                }
+            })
             .catch(err => {
                 console.error(err);
                 return null;
             });
 
+        if (!content) {
+            console.error("Failed to retrieve vault content.");
+            return Promise.resolve(null);
+        }
+
         try {
-            await vault.setContent(Buffer.from(JSON.stringify(content)));
+            content = { ...content, [entryKey]: entryData };
+            const data = Buffer.from(JSON.stringify(content));
+            await vault.setContent(await this.activeVault?.cipher.encrypt(data));
             console.info(`[${entryKey}] = ${entryData}`);
         }
         catch (err) {
-            console.error(err);
+            console.error("Failed to set vault content: ", err);
         }
 
         return Promise.resolve(null);
@@ -147,16 +173,27 @@ class ShellCommandServer extends CommandServer {
             return Promise.resolve(null);
         }
 
-        const vault = this.services.vault.getVaultByName(this.activeVault);
+        const vault = this.services.vault.getVaultByName(this.activeVault?.name);
+
         return vault.getContent()
             .then(content => {
-                content = JSON.parse(content.toString());
-                if (content[entryKey]) {
-                    console.info(`[${entryKey}] = ${content[entryKey]}`);
+                if (!content) {
+                    console.error("No vault data found!");
+                    return null;
                 }
-                else {
-                    console.info(`Vault has no entry ${entryKey}`);
+
+                return this.activeVault?.cipher.decrypt(content);
+            })
+            .then(content => {
+                if (content) {
+                    content = JSON.parse(content.toString());
+                    if (content[entryKey]) {
+                        console.info(`[${entryKey}] = ${content[entryKey]}`);
+                    } else {
+                        console.info(`Vault has no entry ${entryKey}`);
+                    }
                 }
+
                 return null;
             })
             .catch(err => console.error(err));
@@ -205,11 +242,6 @@ class ShellCommandServer extends CommandServer {
         }
 
         return Promise.resolve(async (terminal: Interface): Promise<void> => {
-            const derivedKey = await this.promptPasswordCreation(terminal);
-            if (!derivedKey) {
-                console.error("Bad password");
-                return null;
-            }
             const linkResult = await this.onVaultLink(hostname, portNum, vaultName, subArg);
             if (!linkResult.success) {
                 console.error(`Failed to link vault: ${linkResult.message ?? "An unknown error occurred"}`);
@@ -227,7 +259,7 @@ class ShellCommandServer extends CommandServer {
             promptList(vaultList.data.vaults, "Active Vaults");
             for (let vault of vaultList.data.vaults) {
                 console.info(
-                    ` ${vault.nickname === this.activeVault ? "*" : " "} \"${vault.nickname}\" = Vault[${vault.vaultId}]`);
+                    ` ${vault.nickname === this.activeVault?.name ? "*" : " "} \"${vault.nickname}\" = Vault[${vault.vaultId}]`);
             }
 
             promptList(vaultList.data.connections, "Remote Vaults");
@@ -314,7 +346,6 @@ class ShellCommandServer extends CommandServer {
             "new": this.vaultNew.bind(this),
             "login": this.vaultLogin.bind(this),
             "delete": this.vaultDelete.bind(this),
-            "use": this.vaultUse.bind(this),
             "set": this.vaultSet.bind(this),
             "get": this.vaultGet.bind(this),
             "list": this.vaultList.bind(this),
@@ -344,8 +375,10 @@ class ShellCommandServer extends CommandServer {
             input: stream,
             output: this.term.createWritable(),
             terminal: true,
-            prompt: `(${this.activeVault ?? "mkey"}) % `,
         });
+
+        const updatePrompt = () => commandInterface.setPrompt(`(${this.activeVault?.name ?? "mkey"}) % `);
+        updatePrompt();
 
         const commandParseHandler = async function (input: string) {
             commandInterface.removeListener("line", commandParseHandler);
@@ -365,7 +398,7 @@ class ShellCommandServer extends CommandServer {
                 .catch(err => console.error(err));
 
             commandInterface.addListener("line", commandParseHandler);
-            commandInterface.setPrompt(`(${this.activeVault ?? "mkey"}) % `);
+            updatePrompt();
             commandInterface.prompt();
         }.bind(this);
 
@@ -454,7 +487,7 @@ class ShellCommandServer extends CommandServer {
     }
     afterEach = this.onStartup.bind(this);
 
-    private async promptPasswordCreation(terminal: Interface): Promise<Buffer | null> {
+    private async promptPasswordCreation(terminal: Interface): Promise<EncryptionCipher | null> {
         process.stdout.write("Enter a password: ");
         return new Promise<string | null>((resolve) => {
             this.term.setSilent(true);
@@ -462,7 +495,7 @@ class ShellCommandServer extends CommandServer {
         })
             .then(password => {
                 // TODO: replace constant salt with a randomly-generated, stored one.
-                return CommandServer.createDerivedKey(password, "munkey-salt");
+                return createPbkdf2Cipher(password, "munkey-salt");
             })
             .catch(err => {
                 console.error("Error during password get: ", err);

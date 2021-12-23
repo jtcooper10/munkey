@@ -44,7 +44,7 @@ class EncryptionCipher {
 
     public async encrypt(plainText: Buffer): Promise<Buffer> {
         const fill = await EncryptionCipher.createFill(16);
-        const cipher = this.createDecipher(fill);
+        const cipher = this.createCipher(fill);
 
         return Buffer.concat([
             fill,

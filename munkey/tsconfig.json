@@ -24,6 +24,7 @@
         "error.ts",
         "services/**/*.ts",
         "pouch/**/*.ts",
-        "server/**/*.ts"
+        "server/**/*.ts",
+        "encryption/**/*.ts"
     ]
 }

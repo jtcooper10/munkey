@@ -5,7 +5,6 @@
  * @created : 10/17/2021
  */
 
-import { pbkdf2 } from "crypto";
 import { DeviceDiscoveryDecl, PeerIdentityDecl, PeerVaultDecl } from "../discovery";
 import {
     ServiceContainer,
@@ -30,18 +29,7 @@ abstract class CommandServer {
 
     }
 
-    public static createDerivedKey(password: string, salt: string): Promise<Buffer> {
-        return new Promise<Buffer>(function(resolve, reject) {
-            pbkdf2(Buffer.from(password), Buffer.from(salt), 64000, 24, "sha256", (err, derivedKey) => {
-                if (err) reject(err);
-                else {
-                    resolve(derivedKey);
-                }
-            });
-        });
-    }
-
-    async onCreateVault(vaultName: string): Promise<void> {
+    async onCreateVault(vaultName: string, initialData: Buffer): Promise<void> {
         console.info(`Creating new vault (${vaultName})`);
 
         if (this.services.vault.getVaultByName(vaultName)) {
@@ -55,12 +43,10 @@ abstract class CommandServer {
         // Step 4: Modify read/update to include an `integrityKey`.
 
         try {
-            const vaultId: string | null = await this.services.vault.createVault(vaultName, null);
-            // LOG
+            const vaultId: string | null = await this.services.vault.createVault(vaultName, initialData);
             console.info(`Vault created with ID ${vaultId}`);
         }
         catch (err) {
-            // LOG
             console.error(err);
         }
     }
@@ -127,7 +113,7 @@ abstract class CommandServer {
         let { vaultId = null } = activeDevice?.vaults.find(vault => vault.nickname === vaultName) ?? {};
         if (vaultId) {
             try {
-                vaultId = await this.services.vault.createVault(vaultNickname, vaultId);
+                vaultId = await this.services.vault.createVault(vaultNickname, null, vaultId);
                 let localVault = this.services.vault.getVaultById(vaultId);
                 this.services.connection
                     .publishDatabaseConnection({ hostname, portNum }, vaultName, vaultId, localVault.vault)

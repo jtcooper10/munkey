@@ -15,12 +15,12 @@ class VaultDatabase {
     public readonly vault: VaultDB;
     private readonly logger?: winston.Logger;
 
-    private constructor(vault: VaultDB, logger?: winston.Logger) {
+    constructor(vault: VaultDB, logger?: winston.Logger) {
         this.vault = vault;
         this.logger = logger;
     }
 
-    public static async create(vault: VaultDB, logger?: winston.Logger): Promise<VaultDatabase> {
+    public static async create(vault: VaultDB, initialData: Buffer, logger?: winston.Logger): Promise<VaultDatabase> {
         await vault.getAttachment("vault", "passwords.json")
             .then(() => {
                 logger?.info("Database loaded successfully: %s", vault.name);
@@ -28,13 +28,12 @@ class VaultDatabase {
             .catch(err => {
                 if (err.status === 404) {
                     logger?.info("Database load failed; creating new instance: %s", vault.name);
-                    const blankAttachment = Buffer.from(JSON.stringify({}));
-                    return vault.putAttachment("vault", "passwords.json", blankAttachment, "text/plain");
+                    return vault.putAttachment("vault", "passwords.json", initialData, "text/plain");
                 }
                 return null;
             });
 
-        return Promise.resolve(new VaultDatabase(vault, logger));
+        return new VaultDatabase(vault, logger);
     }
 
     public destroy(): Promise<void> {
@@ -61,7 +60,15 @@ class VaultDatabase {
             .then(({ _rev }) => this.vault.putAttachment("vault", "passwords.json", _rev, content, "text/plain"))
             .then(result => result.ok.valueOf())
             .catch(err => {
-                if (err) {
+                if (err?.status === 404) {
+                    return this.vault.putAttachment("vault", "passwords.json", content, "text/plain")
+                        .then(result => result.ok.valueOf())
+                        .catch(err => {
+                            this.logger?.error("An error occurred while initializing database contents", err);
+                            return false;
+                        });
+                }
+                else if (err) {
                     this.logger?.error("An error occurred while updating database contents", err);
                 }
                 return false;
@@ -106,11 +113,13 @@ export default class VaultService extends Service {
      *
      * @param {string} vaultName Unique "nickname" corresponding to the desired vault.
      * The vault is issued a new, randomly generated UUID on creation.
+     * @param {Buffer} initialData Data to initialize the vault content to if created from scratch.
+     * This value is ignored if the vault is loaded rather than created.
      * @param {string} vaultId Suggested UUID for the new vault.
      * Recommended only when the vault you are creating already exists.
      * @returns {string|null} UUID of new (or existing) PouchDB database.
      */
-    public createVault(vaultName: string, vaultId?: string | null): Promise<string | null>
+    public async createVault(vaultName: string, initialData?: Buffer | null, vaultId?: string | null): Promise<string | null>
     {
         if (!vaultName) {
             throw new ReferenceError(`Invalid vault name: ${vaultName}`);
@@ -123,17 +132,17 @@ export default class VaultService extends Service {
             throw new Error(`Name conflict; local nickname ${vaultName} already exists`);
         }
         else if (!vault) {
-            console.log("NEW VAULT");
             const vaultDb = this.Vault(vaultName);
+            vault = initialData
+                ? await VaultDatabase.create(vaultDb, initialData, this.logger)
+                : new VaultDatabase(vaultDb, this.logger);
 
-            return VaultDatabase.create(vaultDb, this.logger)
-                .then(newVault => {
-                    this.vaultIdMap.set(vaultName, vaultId ??= randomUUID());
-                    this.vaultMap.set(vaultId, newVault);
-                    this.adminService?.recordVaultCreation(newVault.name, vaultId)
-                        .catch(err => this.logger.error("Could not update admin records: ", err));
-                    return this.vaultIdMap.get(vaultName);
-                });
+            this.vaultIdMap.set(vaultName, vaultId ??= randomUUID());
+            this.vaultMap.set(vaultId, vault);
+            this.adminService?.recordVaultCreation(vault.name, vaultId)
+                .catch(err => this.logger.error("Could not update admin records: ", err));
+
+            return this.vaultIdMap.get(vaultName);
         }
 
         return Promise.resolve(vaultId);
@@ -145,7 +154,7 @@ export default class VaultService extends Service {
         const vaultRecords = await this.adminService.getAllVaultRecords();
         await Promise.all(vaultRecords?.map(({ vaultName, vaultId }) => {
             this.logger.info("Requesting initial vault load: %s[%s]", vaultName, vaultId);
-            return this.createVault(vaultName, vaultId);
+            return this.createVault(vaultName, null, vaultId);
         }) ?? []);
 
         return this;
