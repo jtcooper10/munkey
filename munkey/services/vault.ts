@@ -78,6 +78,7 @@ class VaultDatabase {
 
 export enum VaultStatus {
     NOT_FOUND = "VAULT_NOT_FOUND",
+    CONFLICT = "VAULT_CONFLICT",
 }
 
 export type VaultResult = Result<VaultStatus>;

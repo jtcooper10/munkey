@@ -35,11 +35,15 @@ function fail<K>(overrides: Partial<Result<K>> = {}): Result<K> {
     };
 }
 
-function successItem<T, K>(item: T, overrides: Partial<Option<T>> = {}): Option<T, K> {
-    const { message = null, data = item } = overrides;
+function successItem<T, K>(item: T, overrides: Partial<Option<T, K>> = {}): Option<T, K> {
+    const {
+        message = null,
+        data = item,
+        status = Status.SUCCESS,
+    } = overrides;
 
     return {
-        status: Status.SUCCESS,
+        status,
         success: true,
         message,
         data,
@@ -47,11 +51,15 @@ function successItem<T, K>(item: T, overrides: Partial<Option<T>> = {}): Option<
     };
 }
 
-function failItem<T, K>(overrides: Partial<Option<T>> = {}): Option<T, K> {
-    const { message = null, data = null } = overrides;
+function failItem<T, K>(overrides: Partial<Option<T, K>> = {}): Option<T, K> {
+    const {
+        message = null,
+        data = null,
+        status = Status.FAILURE,
+    } = overrides;
 
     return {
-        status: Status.FAILURE,
+        status,
         success: false,
         message,
         data,

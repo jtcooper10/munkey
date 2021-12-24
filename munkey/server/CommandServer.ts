@@ -13,7 +13,7 @@ import {
     ConnectionResult,
     ConnectionStatus
 } from "../services";
-import { fail, failItem, Option, Result, Status } from "../error";
+import { fail, failItem, Option, Result, Status, successItem } from "../error";
 
 /**
  * Container for managing and dispatching external commands to the application.
@@ -29,25 +29,23 @@ abstract class CommandServer {
 
     }
 
-    async onCreateVault(vaultName: string, initialData: Buffer): Promise<void> {
-        console.info(`Creating new vault (${vaultName})`);
-
+    async onCreateVault(vaultName: string, initialData: Buffer): Promise<VaultOption<string>> {
         if (this.services.vault.getVaultByName(vaultName)) {
-            return console.error(`Cannot create vault ${vaultName} (already exists)`);
+            return failItem<string, VaultStatus>({
+                status: VaultStatus.CONFLICT,
+                message: `Cannot create vault with name ${vaultName}, already exists`,
+            });
         }
-
-        // Step 1: Prompt user to create a password.
-        // Step 2: Transform password into derived key
-        // Step 3: Pass this key into the vault creation thing.
-        //         Have it store the key internally, and expire after a certain amount of time.
-        // Step 4: Modify read/update to include an `integrityKey`.
 
         try {
             const vaultId: string | null = await this.services.vault.createVault(vaultName, initialData);
-            console.info(`Vault created with ID ${vaultId}`);
+            return successItem<string, VaultStatus>(vaultId, { message: "Vault created successfully" });
         }
         catch (err) {
-            console.error(err);
+            return failItem<string, VaultStatus>({
+                status: Status.FAILURE,
+                message: err?.message ?? "An unknown error has occurred",
+            });
         }
     }
 
@@ -91,7 +89,6 @@ abstract class CommandServer {
         }
     }
 
-    // MOVE
     async onVaultLink(
         hostname: string, portNum: number,
         vaultName: string, vaultNickname: string = vaultName): Promise<ConnectionResult>

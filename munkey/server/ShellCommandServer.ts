@@ -58,17 +58,25 @@ class ShellCommandServer extends CommandServer {
             return Promise.resolve(null);
         }
         return Promise.resolve(stream => this
-                .promptPasswordCreation(stream)
-                .then(async cipher => {
-                    const initialData: Buffer = await cipher.encrypt(Buffer.from(JSON.stringify({})));
-                    await this.onCreateVault(vaultName, initialData);
+            .promptPasswordCreation(stream)
+            .then(async cipher => {
+                const initialData: Buffer = await cipher.encrypt(Buffer.from(JSON.stringify({})));
+                const vaultResult = await this.onCreateVault(vaultName, initialData);
 
+                if (vaultResult.success) {
+                    const vaultId = vaultResult.unpack("[unknown]");
+
+                    console.info(`Vault created with ID ${vaultId}`);
                     this.activeVault = {
                         name: vaultName,
                         cipher,
                     };
-                    return null;
-                }));
+                }
+                else {
+                    console.error("Failed to create vault: ", vaultResult.message);
+                }
+                return null;
+            }));
     }
 
     public vaultLogin([vaultName = null]: string[] = []): Promise<CommandReadCallback> {
@@ -242,9 +250,17 @@ class ShellCommandServer extends CommandServer {
         }
 
         return Promise.resolve(async (terminal: Interface): Promise<void> => {
-            const linkResult = await this.onVaultLink(hostname, portNum, vaultName, subArg);
+            let linkResult = await this.onVaultLink(hostname, portNum, vaultName, subArg);
+            let cipher: EncryptionCipher = null;
             if (!linkResult.success) {
                 console.error(`Failed to link vault: ${linkResult.message ?? "An unknown error occurred"}`);
+            }
+            else if ((cipher = await this.promptPasswordCreation(terminal)) == null) {
+                console.error("Vault linking was successful, but the login attempt failed.");
+                console.error(`To try logging in again, use the command: vault login ${vaultName}`);
+            }
+            else {
+                console.info(`Vault link successful: ${vaultName}@${hostname}:${portNum}`);
             }
         });
     }
