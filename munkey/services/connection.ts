@@ -2,8 +2,16 @@ import PouchDB from "pouchdb";
 
 import Service, { VaultDB, DatabaseDocument } from "./baseService";
 import { DeviceDiscoveryDecl } from "../discovery";
+import { Option, Result } from "../error";
 
 export type VaultSyncToken = PouchDB.Replication.Sync<DatabaseDocument>;
+
+export enum ConnectionStatus {
+    UNAVAILABLE = "CONNECTION_UNAVAILABLE",
+}
+
+export type ConnectionResult = Result<ConnectionStatus>;
+export type ConnectionOption<T> = Option<T, ConnectionStatus>;
 
 /**
  * @name ConnectionService

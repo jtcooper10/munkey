@@ -21,7 +21,10 @@
         "discovery.ts",
         "logging.ts",
         "configure.ts",
+        "error.ts",
         "services/**/*.ts",
-        "pouch/**/*.ts"
+        "pouch/**/*.ts",
+        "server/**/*.ts",
+        "encryption/**/*.ts"
     ]
 }
