@@ -29,11 +29,6 @@ import MemDown from "memdown";
 import { ArgumentParser, Action, Namespace } from "argparse";
 
 import {
-    AdminDatabaseDocument,
-    AdminService,
-    DatabaseDocument,
-} from "./services";
-import {
     configureRoutes,
     configurePlugins,
     configureLogging,
@@ -48,8 +43,14 @@ import {
     ActivityService,
     ConnectionService,
     WebService,
+
+    AdminDatabaseDocument,
+    AdminService,
+    DatabaseDocument,
+    DatabaseContext,
 } from "./services";
 import { LoggingOptions } from "./logging";
+
 
 interface CommandLineArgs {
     root_dir: string;
@@ -58,6 +59,7 @@ interface CommandLineArgs {
     in_memory: boolean;
     verbose: boolean;
 }
+
 
 const parseCommandLineArgs = function(argv: string[] = process.argv.slice(2)): CommandLineArgs {
     class PathResolver extends Action {
@@ -128,25 +130,26 @@ generateNewIdentity(commandLineArgs.root_dir)
             loggingLocation: path.resolve(rootPath, "munkey.log"),
             useConsole: verbose,
         };
+        const localOpts: PouchDB.Configuration.DatabaseConfiguration & { db?: any } = {
+            prefix: path.join(rootPath, "munkey") + "/",
+        };
+        const adminOpts: PouchDB.Configuration.DatabaseConfiguration & { db?: any } = {
+            prefix: path.join(rootPath, "admin") + "/",
+        };
+        if (isInMemory) {
+            localOpts.db = MemDown;
+            adminOpts.db = MemDown;
+        }
 
-        const LocalDB = configurePlugins<DatabaseDocument, DatabasePluginAttachment>(
-            {
-                prefix: rootPath + path.sep + "munkey" + path.sep,
-                db: isInMemory ? MemDown : undefined,
-            } as PouchDB.Configuration.DatabaseConfiguration,
-        );
-        const AdminDB = configurePlugins<AdminDatabaseDocument, {}>(
-            {
-                prefix: rootPath + path.sep + "admin" + path.sep,
-                db: isInMemory ? MemDown : undefined,
-            } as PouchDB.Configuration.DatabaseConfiguration,
-        );
-        const getLocalDB = function(name, options) {
-            return new LocalDB(name, options) as PouchDB.Database<DatabaseDocument> & DatabasePluginAttachment;
+        const LocalDB = configurePlugins<DatabaseDocument, DatabasePluginAttachment>(localOpts);
+        const AdminDB = configurePlugins<AdminDatabaseDocument, {}>(adminOpts);
+        const localDbContext: DatabaseContext<DatabaseDocument, DatabasePluginAttachment> = {
+            create: (name, opts) => new LocalDB(name, opts),
+            load: (name, opts) => new LocalDB(name, opts),
         };
 
         return Promise.resolve(configureLogging({
-                vault: new VaultService(getLocalDB),
+                vault: new VaultService(localDbContext),
                 identity: new IdentityService(uniqueId, keyPair),
                 activity: new ActivityService(bonjour()),
                 connection: new ConnectionService(),

@@ -2,14 +2,13 @@ import { randomUUID } from "crypto";
 import PouchDB from "pouchdb";
 import winston from "winston";
 
-import AdminService from "./admin";
-import Service, { DatabaseDocument, VaultDB } from "./baseService";
-import { PeerVaultDecl } from "../discovery";
-import { failItem, Option, Result, successItem } from "../error";
+import AdminService from "../admin";
+import Service, { DatabaseDocument, VaultDB } from "../baseService";
+import { PeerVaultDecl } from "../../discovery";
+import { failItem, Option, Result, successItem } from "../../error";
+import { DatabaseContext } from "./constructor";
+import { DatabasePluginAttachment } from "../../pouch";
 
-
-export type DatabaseConstructor<T extends PouchDB.Database<D>, D>
-    = (name?: string, options?: PouchDB.Configuration.DatabaseConfiguration) => T;
 
 class VaultDatabase {
     public readonly vault: VaultDB;
@@ -99,7 +98,7 @@ export default class VaultService extends Service {
     private readonly vaultIdMap: Map<string, string>;
     private adminService?: AdminService;
 
-    constructor(private Vault: DatabaseConstructor<VaultDB, DatabaseDocument>) {
+    constructor(private vaultContext: DatabaseContext<DatabaseDocument, DatabasePluginAttachment>) {
         super();
         this.vaultMap = new Map<string, VaultDatabase>();
         this.vaultIdMap = new Map<string, string>();
@@ -133,7 +132,7 @@ export default class VaultService extends Service {
             throw new Error(`Name conflict; local nickname ${vaultName} already exists`);
         }
         else if (!vault) {
-            const vaultDb = this.Vault(vaultName);
+            const vaultDb = this.vaultContext.create(vaultName);
             vault = initialData
                 ? await VaultDatabase.create(vaultDb, initialData, this.logger)
                 : new VaultDatabase(vaultDb, this.logger);
@@ -293,7 +292,7 @@ export default class VaultService extends Service {
      * @name getActiveVaultList
      * @summary Generate a list of active Peer Vault Declaration records.
      * @description Generate an array containing the Peer Vault Declaration record for all active vaults.
-     * Similar to the method {@link Vault#getActiveVaults}, but returns a complete list instead of iterating.
+     * Similar to the method {@link VaultService#getActiveVaults}, but returns a complete list instead of iterating.
      * No guarantees are made by the function in terms of race conditions.
      * If, for example, a new vault entry is added before the vault iteration completes,
      * it is not guaranteed that the new entry will be made visible to the iterator.

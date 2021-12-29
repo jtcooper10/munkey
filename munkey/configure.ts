@@ -6,8 +6,8 @@ import usePouchDB from "express-pouchdb";
 import { DeviceDiscoveryDecl, PeerIdentityDecl } from "./discovery";
 import { DatabaseDocument, ServiceContainer } from "./services";
 
-type PouchConstructor<Content> = {
-    new<Content>(name?: string, options?: PouchDB.Configuration.DatabaseConfiguration): PouchDB.Database<Content>
+type PouchConstructor<Content, Plug = {}> = {
+    new<Content>(name?: string, options?: PouchDB.Configuration.DatabaseConfiguration): PouchDB.Database<Content> & Plug
 };
 
 export interface ServerOptions {
@@ -76,7 +76,7 @@ function configureRoutes(services: ServiceContainer, options?: ServerOptions): P
 
 function configurePlugins<D, P>(
     options: PouchDB.Configuration.DatabaseConfiguration,
-    plugins?: P): PouchConstructor<D & P>
+    plugins?: P): PouchConstructor<D, P>
 {
     // TODO: rigorous type assertions to make this squeaky clean.
     // The main reason this is so ugly right now is because PouchDB's types are pretty wonktacular.
@@ -84,7 +84,7 @@ function configurePlugins<D, P>(
         PouchDB.plugin(<unknown> plugins as PouchDB.Plugin);
     }
 
-    return PouchDB.defaults(options);
+    return PouchDB.defaults(options) as PouchConstructor<D, P>;
 }
 
 export {
