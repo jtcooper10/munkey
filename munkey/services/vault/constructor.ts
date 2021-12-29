@@ -1,4 +1,18 @@
 import PouchDB from "pouchdb";
+import { Option, Result } from "../../error";
+
+
+export enum VaultStatus {
+    NOT_FOUND = 16,
+    CONFLICT,
+}
+
+export type VaultResult = Result<VaultStatus>;
+export type VaultOption<T> = Option<T, VaultStatus>;
+
+export interface Vault {
+    delete: () => Promise<VaultOption<string>>;
+}
 
 export type DatabaseConstructor<Doc, Plug = {}>
     = (name?: string, options?: PouchDB.Configuration.DatabaseConfiguration) => PouchDB.Database<Doc> & Plug;

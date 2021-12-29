@@ -14,6 +14,8 @@ import {
     ConnectionStatus
 } from "../services";
 import { fail, failItem, Option, Result, Status, successItem } from "../error";
+import { randomUUID } from "crypto";
+
 
 /**
  * Container for managing and dispatching external commands to the application.
@@ -38,8 +40,12 @@ abstract class CommandServer {
         }
 
         try {
-            const vaultId: string | null = await this.services.vault.createVault(vaultName, initialData);
-            return successItem<string, VaultStatus>(vaultId, { message: "Vault created successfully" });
+            const vaultId = randomUUID();
+            const vaultResult = await this.services.vault.createVault(vaultName, vaultId, initialData);
+
+            return vaultResult.success
+                ? successItem(vaultId, { message: "Vault created successfully" })
+                : failItem({ message: vaultResult.message });
         }
         catch (err) {
             return failItem<string, VaultStatus>({
@@ -110,8 +116,14 @@ abstract class CommandServer {
         let { vaultId = null } = activeDevice?.vaults.find(vault => vault.nickname === vaultName) ?? {};
         if (vaultId) {
             try {
-                vaultId = await this.services.vault.createVault(vaultNickname, null, vaultId);
-                let localVault = this.services.vault.getVaultById(vaultId);
+                let localVaultResult = await this.services.vault.linkVault(vaultNickname, vaultId);
+                if (!localVaultResult.success) {
+                    return fail({
+                        message: localVaultResult.message,
+                    });
+                }
+                let localVault = localVaultResult.unpack(this.services.vault.getVaultById(vaultId));
+
                 this.services.connection
                     .publishDatabaseConnection({ hostname, portNum }, vaultName, vaultId, localVault.vault)
                     .catch(err => console.error(err));
