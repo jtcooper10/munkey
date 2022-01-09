@@ -65,4 +65,9 @@ export default class VaultDatabase {
                 return false;
             });
     }
+
+    public initialize(initialData: Buffer): Promise<boolean> {
+        return this.getContent()
+            .then(content => content ? false : this.setContent(initialData));
+    }
 }

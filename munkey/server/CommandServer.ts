@@ -41,11 +41,14 @@ abstract class CommandServer {
 
         try {
             const vaultId = randomUUID();
-            const vaultResult = await this.services.vault.createVault(vaultName, vaultId, initialData);
+            const vaultResult = this.services.vault.createVault(vaultName, vaultId, initialData);
+            if (!vaultResult.success) {
+                return failItem({ message: vaultResult.message });
+            }
 
-            return vaultResult.success
+            return await vaultResult.data.initialize(initialData)
                 ? successItem(vaultId, { message: "Vault created successfully" })
-                : failItem({ message: vaultResult.message });
+                : failItem({ message: "Failed to initialize vault" });
         }
         catch (err) {
             return failItem<string, VaultStatus>({

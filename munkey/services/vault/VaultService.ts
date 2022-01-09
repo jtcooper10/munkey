@@ -39,9 +39,26 @@ export default class VaultService extends Service {
         return vault;
     }
 
-    public async createVault(vaultName: string,
+    /**
+     * @name createVault
+     * @method
+     * @summary Create a new, empty vault if no vault with the given name exists.
+     *
+     * Create a new vault from scratch and load it from disk.
+     * Intended for when the user requests creation of a brand new, empty vault.
+     * The vault file will be initialized to the provided buffer.
+     *
+     * @param vaultName
+     * @param vaultId {string} Globally unique identifier
+     * @param initialData {Buffer} Node.js Buffer object containing initial content of the new vault's "vault" file.
+     *
+     * @returns option object containing the newly created {@link VaultDatabase} wrapper object.
+     * Fails if the given name or vault ID is already in use.
+     * Fails if
+     */
+    public createVault(vaultName: string,
                              vaultId?: string,
-                             initialData?: Buffer): Promise<VaultOption<VaultDatabase>>
+                             initialData?: Buffer): VaultOption<VaultDatabase>
     {
         if (this.vaultIdMap.has(vaultName) || this.vaultMap.has(vaultId)) {
             return failItem({
@@ -51,11 +68,26 @@ export default class VaultService extends Service {
         }
 
         const vaultDb = this.vaultContext.create(vaultName); // fails if the database already exists on-disk
-        const vault = await VaultDatabase.create(vaultDb, initialData, this.logger);
-        this.adminService?.recordVaultCreation(vaultName, vaultId);
+        const vault = new VaultDatabase(vaultDb, this.logger);
         return successItem(this.setVaultEntry(vaultName, vaultId, vault));
     }
 
+    /**
+     * @name linkVault
+     * @method
+     * @summary Map a new nickname to a vault with the given ID, creating it if it does not exist.
+     *
+     * Map the given vault name to the given vault ID.
+     * This allows multiple nicknames to be associated with the same vault,
+     * or allows creating a local copy of a remote database.
+     * If no vault with that ID exists, then it is created.
+     *
+     * @param vaultName {string} Vault nickname to assign as an alias to the vault.
+     * @param vaultId {string} Vault ID to assign the given nickname as an alias to.
+     *
+     * @returns Option object containing a database object corresponding to the given vault ID.
+     * Indicates {@link VaultStatus.CONFLICT} if the given nickname already exists in-memory.
+     */
     public linkVault(vaultName: string, vaultId: string): VaultOption<VaultDatabase> {
         if (this.vaultIdMap.has(vaultName)) {
             return failItem<VaultDatabase, VaultStatus>({
@@ -66,13 +98,27 @@ export default class VaultService extends Service {
 
         let vault: VaultDatabase | null = this.getVaultById(vaultId);
         if (vault === null) {
-            const vaultDb = this.vaultContext.create(vaultName);
-            vault = new VaultDatabase(vaultDb, this.logger);
+            return this.createVault(vaultName, vaultId);
         }
 
-        return successItem(this.setVaultEntry(vaultName, vaultId, vault));
+        this.vaultIdMap.set(vaultName, vaultId);
+        return successItem(vault);
     }
 
+    /**
+     * @name loadVault
+     * @method
+     * @summary Load the specified vault from disk into the vault service context.
+     *
+     * Loads the vault with the given name from disk into memory.
+     * It is loaded with the provided vault ID (NOTE: this behavior may be deprecated with the identity system).
+     *
+     * @param vaultName {string} Locally unique vault name to attempt to load from disk.
+     * @param vaultId {string} Globally unique vault ID to assign to the created vault.
+     *
+     * @returns Option object containing the newly loaded database object.
+     * Indicates {@link VaultStatus.CONFLICT} if the given nickname or vault ID already exists.
+     */
     public loadVault(vaultName: string, vaultId: string): VaultOption<VaultDatabase> {
         if (this.vaultExists(vaultName)) {
             // Conflict; vault is already loaded into memory
@@ -101,6 +147,18 @@ export default class VaultService extends Service {
         }
     }
 
+    /**
+     * @name useAdminService
+     * @method
+     * @summary Attach administrator database service to the vault service.
+     *
+     * The provided admin service will be notified on essential operations.
+     * This includes the creation of databases, or any other long-term persisted data.
+     * Only one admin service container may be attached to each vault service container.
+     *
+     * @param adminService {AdminService} Admin service container to attach.
+     * @returns {VaultService} Pass-through of vault container object.
+     */
     public async useAdminService(adminService: AdminService): Promise<this> {
         this.adminService = adminService;
 
@@ -113,31 +171,35 @@ export default class VaultService extends Service {
         return this;
     }
 
-    public async deleteVaultById(vaultId: string, vaultName: string): Promise<void> {
-        const vault = this.vaultMap.get(vaultId);
+    /**
+     * @name deleteVaultById
+     * @method
+     * @summary Remove the vault and all entries associated with the given vault ID.
+     *
+     * The vault with the associated vault ID is removed and properly destroyed,
+     * as well as any locally unique vault names which referenced that vault ID.
+     * The vault names that were removed are returned as an array.
+     *
+     * @param vaultId {string} ID of the vault to delete.
+     * @returns {string[]} Array of locally unique vault names which were deleted.
+     */
+    public async deleteVaultById(vaultId: string): Promise<string[]> {
+        let deletedVaults: string[] = [];
+        let vault = this.vaultMap.get(vaultId) ?? null;
 
-        if (vault) {
-            this.logger.info("Deleting...");
+        if (!vault) {
+            return deletedVaults;
+        }
+        await vault.destroy();
 
-            this.vaultMap.delete(vaultId);
-            this.vaultIdMap.delete(vaultName);
-            await vault.destroy()
-                .catch(err => this.logger.error("Failed to delete database with ID %s", vaultId, err));
+        for (let [name, id] of this.vaultIdMap.entries()) {
+            if (id === vaultId && this.vaultIdMap.delete(name)) {
+                deletedVaults.push(name);
+            }
         }
-        else {
-            this.logger.error(`Could not resolve vault ID ${vaultId}`, { action: "delete" });
-        }
-    }
+        this.vaultMap.delete(vaultId);
 
-    public async deleteVaultByName(vaultName: string): Promise<void> {
-        const vaultId: string = this.vaultIdMap.get(vaultName);
-
-        if (vaultId) {
-            await this.deleteVaultById(vaultId, vaultName);
-        }
-        else {
-            this.logger.warning(`Could not resolve local vault name: ${vaultName}`, { action: "delete" });
-        }
+        return deletedVaults;
     }
 
     /**
