@@ -1,7 +1,7 @@
 
 enum Status {
-    SUCCESS = "SUCCESS",
-    FAILURE = "FAILURE",
+    SUCCESS = 0,
+    FAILURE = 15,
 }
 
 interface Result<K = {}> {
