@@ -74,15 +74,14 @@ function configureRoutes(services: ServiceContainer, options?: ServerOptions): P
         });
 }
 
-function configurePlugins<D, P>(
+
+function configurePlugins<D, P extends PouchDB.Plugin>(
     options: PouchDB.Configuration.DatabaseConfiguration,
     plugins?: P): PouchConstructor<D, P>
 {
-    // TODO: rigorous type assertions to make this squeaky clean.
-    // The main reason this is so ugly right now is because PouchDB's types are pretty wonktacular.
-    if (plugins) {
-        PouchDB.plugin(<unknown> plugins as PouchDB.Plugin);
-    }
+    let pouch = PouchDB.defaults(options) as PouchDB.Static<P>;
+    if (plugins)
+        pouch = pouch.plugin<P>(plugins);
 
     return PouchDB.defaults(options) as PouchConstructor<D, P>;
 }

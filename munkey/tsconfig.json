@@ -10,13 +10,14 @@
             "node"
         ],
         "lib": [
-            "es2015",
+            "es2017",
             "dom"
         ],
         "outDir": "bin"
     },
     "include": [
         "munkey.ts",
+        "mkey-service.ts",
         "command.ts",
         "discovery.ts",
         "logging.ts",
