@@ -1,6 +1,6 @@
 import PouchDB from "pouchdb";
-import { DatabaseContext, DatabaseDocument, VaultDatabase, VaultDB, VaultService } from "../../../munkey/services";
-import { DatabasePluginAttachment } from "../../../munkey/pouch";
+import { DatabaseContext, DatabaseDocument, VaultDatabase, VaultDB, VaultService } from "../../../services";
+import { DatabasePluginAttachment } from "../../../pouch";
 
 import { describe, it, beforeEach } from "mocha";
 import sinon from "sinon";

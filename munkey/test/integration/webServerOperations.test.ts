@@ -1,4 +1,4 @@
-import * as services from "../../munkey/services";
+import * as services from "../../services";
 import express from "express";
 import http from "http";
 

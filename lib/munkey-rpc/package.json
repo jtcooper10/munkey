@@ -10,7 +10,7 @@
     "clean:all": "rm -rf bin node_modules"
   },
   "author": "Josh C",
-  "license": "ISC",
+  "license": "MIT",
   "files": [
     "index.js",
     "bin"
@@ -19,7 +19,7 @@
     "grpc_tools_node_protoc_ts": "^5.3.2",
     "grpc-tools": "^1.11.2"
   },
-  "peerDependencies": {
+  "dependencies": {
     "@grpc/grpc-js": "^1.5.0",
     "google-protobuf": "^3.15.8"
   }

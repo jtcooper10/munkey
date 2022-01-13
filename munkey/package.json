@@ -4,9 +4,9 @@
   "description": "Peer-to-peer cryptographic password manager",
   "main": "bin/munkey.js",
   "scripts": {
-    "build": "tsc --build munkey",
+    "build": "tsc",
     "start": "npm run build && node munkey/bin/munkey.js",
-    "clean": "rm -rf munkey/bin node_modules",
+    "clean": "rm -rf bin node_modules",
     "test": "mocha --config ./.mocharc.json test/**/*.test.ts"
   },
   "keywords": [],
@@ -36,13 +36,12 @@
   },
   "dependencies": {
     "@grpc/grpc-js": "^1.5.0",
-    "@grpc/proto-loader": "^0.6.9",
     "argparse": "^2.0.1",
     "bonjour": "^3.5.0",
     "express": "^4.17.1",
     "express-pouchdb": "^4.2.0",
     "memdown": "^6.1.1",
-    "munkey-rpc": "file:lib/munkey-rpc",
+    "munkey-rpc": "file:../lib/munkey-rpc",
     "pouchdb": "^7.2.2",
     "winston": "^3.3.3"
   }
