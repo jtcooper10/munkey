@@ -1,33 +1,33 @@
 name: Node.js Tests
 
-# Controls when the workflow will run
 on:
-  # Triggers the workflow on push or pull request events but only for the main branch
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
 
-  # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
-  run-tests:
+  run-node-tests:
     runs-on: ubuntu-latest
 
-    # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v2
 
       - name: Install system dependencies
         run: sudo apt-get -y install protobuf-compiler
 
-      # Sets up local dependencies
+      # Set up local dependencies
       - name: Setup for dependency `munkey-rpc`
         working-directory: ./lib/munkey-rpc
         run: npm pack
+
+      # Install local dependencies
+      - name: Install local dependencies
+        working-directory: ./munkey
+        run: |
+          npm install --save --no-audit ../lib/munkey-rpc/munkey-munkey-rpc-0.0.1.tgz
 
       # Run tests for main package
       - name: Run tests for `munkey` service

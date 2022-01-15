@@ -54,10 +54,19 @@ Note that this process is not required for the other C# projects, as NuGet's pac
 
 ### Step 2:
 
-Install dependencies (including local dependencies from [Step 1](#Step 1: Package Local Dependencies)), then build the project.
+From this directory, install dependencies (including local dependencies from [Step 1](#Step 1: Package Local Dependencies)), then build the project.
+For each local dependency, you'll need to "install" the resulting `.tgz` file.
+
+(Just to reiterate again: this is a *temporary* workaround, and will be updated as soon as the lib APIs are released).
 
 ```shell
-$ npm install
+# For each package:
+$ npm install --save --no-audit ../lib/<package-name>/<.tgz-file-from-step-1>
+```
+
+Once all local dependencies are resolved, you can build the program. Phew!
+
+```shell
 $ npm run build
 ```
 
