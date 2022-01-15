@@ -21,6 +21,9 @@ jobs:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v2
 
+      - name: Install system dependencies
+        run: sudo apt-get -y install protobuf-compiler
+
       # Sets up local dependencies
       - name: Setup for dependency `munkey-rpc`
         working-directory: ./lib/munkey-rpc
