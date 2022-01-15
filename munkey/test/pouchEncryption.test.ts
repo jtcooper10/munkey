@@ -6,7 +6,7 @@ import chai, { expect } from "chai";
 import chaiAsPromised from "chai-as-promised";
 import sinon from "sinon";
 
-import { EncryptionCipher, getEncryptionPlugin } from "../munkey/pouch";
+import { EncryptionCipher, getEncryptionPlugin } from "../pouch";
 
 chai.use(chaiAsPromised);
 
