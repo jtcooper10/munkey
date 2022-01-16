@@ -28,7 +28,6 @@ def main(args):
         f"--js_out=import_style=commonjs:{ts_path}",
         f"--grpc_out=grpc_js:{ts_path}",
         f"-I{src_path}",
-        "--fatal_warnings",
         "munkey.proto",
     ])
 
