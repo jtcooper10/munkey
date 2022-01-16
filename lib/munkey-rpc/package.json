@@ -3,17 +3,18 @@
   "version": "0.0.1",
   "description": "Language-agnostic RPC protocol interface library",
   "main": "index.js",
-  "types": "index.d.ts",
+  "types": "./index.d.ts",
   "scripts": {
     "build": "python build.py",
     "clean": "rm -rf node_modules",
-    "clean:all": "rm -rf bin node_modules",
+    "clean:all": "rm -rf bin node_modules *.tgz",
     "prepack": "npm install && npm run build && npm run clean"
   },
   "author": "Josh C",
   "license": "MIT",
   "files": [
     "index.js",
+    "index.d.ts",
     "bin"
   ],
   "devDependencies": {

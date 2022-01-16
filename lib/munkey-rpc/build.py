@@ -29,7 +29,7 @@ def main(args):
             f"--js_out=import_style=commonjs:{ts_path}",
             f"--grpc_out=grpc_js:{ts_path}",
             f"-I{src_path}",
-            "test.proto",
+            "munkey.proto",
         ])
     except CalledProcessError as err:
         print(err)

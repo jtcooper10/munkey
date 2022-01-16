@@ -1,0 +1,45 @@
+syntax = "proto3";
+package munkey;
+
+message VaultCreationRequest {
+    string name = 1;
+    bytes initialData = 2;
+}
+
+message VaultRequest {
+    string name = 1;
+}
+
+message VaultEntry {
+    string name = 1;
+    string id = 2;
+}
+
+message VaultData {
+    VaultEntry entry = 1;
+    bytes data = 2;
+}
+
+message VaultCollectionRequest {
+    uint32 maxSize = 1;
+}
+
+message VaultCollection {
+    uint32 size = 1;
+    repeated VaultEntry list = 2;
+}
+
+message VaultActionResult {
+    enum status {
+        Ok = 0;
+    }
+    string message = 1;
+}
+
+service Vault {
+    rpc Create(stream VaultCreationRequest) returns (VaultActionResult);
+    rpc GetContent(VaultRequest) returns (stream VaultData);
+    rpc SetContent(stream VaultCreationRequest) returns (VaultActionResult);
+    rpc Delete(stream VaultRequest) returns (VaultActionResult);
+    rpc List(VaultCollectionRequest) returns (stream VaultCollection);
+}
