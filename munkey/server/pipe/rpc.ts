@@ -1,46 +1,102 @@
 import CommandServer from "../CommandServer";
 import {
     IVaultServer,
-    VaultActionResult, VaultCollection,
+    VaultActionResult,
+    VaultCollection,
     VaultCollectionRequest,
     VaultCreationRequest,
     VaultData,
-    VaultRequest
+    VaultEntry,
+    VaultRequest,
+    VaultStatus
 } from "@munkey/munkey-rpc";
-import { sendUnaryData, ServerReadableStream, ServerWritableStream } from "@grpc/grpc-js";
+import {
+    sendUnaryData,
+    ServerReadableStream,
+    ServerUnaryCall,
+    ServerWritableStream,
+    UntypedHandleCall
+} from "@grpc/grpc-js";
+
 
 export default function createVaultServer<T extends CommandServer>(commands: T): IVaultServer {
-    return {
-        create(call: ServerReadableStream<VaultCreationRequest, VaultActionResult>,
-               respond: sendUnaryData<VaultActionResult>): void
+    class VaultServer implements IVaultServer {
+        [name: string]: UntypedHandleCall;
+
+        public createVault(call: ServerReadableStream<VaultCreationRequest, VaultActionResult>,
+                           respond: sendUnaryData<VaultActionResult>): void
         {
             call.on("data", data => {
-                console.log("[Server]", data.getName(), new TextDecoder("utf-8").decode(data.getInitialdata()));
-                respond(null, new VaultActionResult().setMessage("not implemented"));
+                commands.onCreateVault(data.getName(), Buffer.from(data.getInitialdata()))
+                    .then(result => {
+                        if (!result.success) {
+                            return respond(new Error(result.message));
+                        }
+
+                        respond(null,
+                            new VaultActionResult()
+                                .setMessage(result.message)
+                                .setStatus(VaultStatus.OK)
+                        );
+                    });
             });
-        },
-        delete(call: ServerReadableStream<VaultRequest, VaultActionResult>,
-               respond: sendUnaryData<VaultActionResult>): void
+        }
+
+        public deleteVault(call: ServerUnaryCall<VaultRequest, VaultActionResult>,
+                           respond: sendUnaryData<VaultActionResult>): void
         {
-            respond(null, new VaultActionResult().setMessage("not implemented"));
-        },
-        getContent(call: ServerWritableStream<VaultRequest, VaultData>): void {
-        },
-        list(call: ServerWritableStream<VaultCollectionRequest, VaultCollection>): void {
+            call.on("data", async data => {
+                const deleteResult = await commands.onDeleteVault(data.getName());
+                if (!deleteResult.success) {
+                    return respond(new Error(), null);
+                }
+                respond(null,
+                    new VaultActionResult()
+                        .setMessage(deleteResult.message)
+                        .setStatus(VaultStatus.OK)
+                );
+            });
+        }
+
+        public getContent(call: ServerWritableStream<VaultRequest, VaultData>): void {
+            commands.onGetContent(call.request.getName())
+                .then(content => {
+                    call.write(
+                        new VaultData()
+                            .setEntry(new VaultEntry().setName(call.request.getName()))
+                            .setData(content.unpack(Buffer.from("{\"no_content\": null}")))
+                            .setStatus(VaultStatus.OK)
+                    );
+                });
+        }
+
+        public listVaults(call: ServerWritableStream<VaultCollectionRequest, VaultCollection>): void {
             call.write(
                 new VaultCollection()
                     .setSize(0)
                     .setListList([]),
                 () => call.end());
-        },
-        setContent(call: ServerReadableStream<VaultCreationRequest, VaultActionResult>,
+        }
+
+        public setContent(call: ServerReadableStream<VaultCreationRequest, VaultActionResult>,
                    respond: sendUnaryData<VaultActionResult>): void
         {
             call.on("data", data => {
-                console.log("[Server]", data.getName(), new TextDecoder("utf-8").decode(data.getInitialdata()));
-                respond(null, new VaultActionResult().setMessage("not implemented"));
+                commands.onSetContent(data.getName(), data.getInitialdata())
+                    .then(content => {
+                        if (!content.success) {
+                            return respond(new Error(content.message));
+                        }
+                        respond(null,
+                            new VaultActionResult()
+                                .setMessage(content.message)
+                                .setStatus(VaultStatus.OK)
+                        );
+                    });
             });
         }
 
-    };
+    }
+
+    return new VaultServer();
 }

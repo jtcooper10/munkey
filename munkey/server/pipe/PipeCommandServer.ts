@@ -5,9 +5,7 @@ import { ServiceContainer } from "../../services";
 import {
     IVaultServer,
     IVaultService,
-    VaultCreationRequest,
     VaultService,
-    VaultClient,
 } from "@munkey/munkey-rpc";
 import createVaultServer from "./rpc";
 
@@ -48,22 +46,5 @@ export default class PipeCommandServer extends CommandServer {
         server.addService(this.rpc.vaultService, this.vaultServer);
         await PipeCommandServer.bindService(server, grpc.ServerCredentials.createInsecure(), address);
         return server;
-    }
-
-    public async sendRequest(): Promise<string> {
-        const client = new VaultClient("127.0.0.1:8000", grpc.credentials.createInsecure());
-
-        return new Promise(function(resolve, reject) {
-            const stream = client.create((err, response) => {
-                if (err) reject(err);
-                resolve(response.getMessage());
-            });
-
-            stream.write(
-                new VaultCreationRequest()
-                    .setName("unnamed")
-                    .setInitialdata(Buffer.from("{\"hello\":\"world\"}"))
-            );
-        });
     }
 };

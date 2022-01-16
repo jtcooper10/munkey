@@ -1,6 +1,12 @@
 syntax = "proto3";
 package munkey;
 
+enum VaultStatus {
+    Ok = 0;
+    NotFound = 1;
+    Conflict = 2;
+}
+
 message VaultCreationRequest {
     string name = 1;
     bytes initialData = 2;
@@ -12,16 +18,17 @@ message VaultRequest {
 
 message VaultEntry {
     string name = 1;
-    string id = 2;
+    optional string id = 2;
 }
 
 message VaultData {
-    VaultEntry entry = 1;
-    bytes data = 2;
+    VaultStatus status = 1;
+    VaultEntry entry = 2;
+    optional bytes data = 3;
 }
 
 message VaultCollectionRequest {
-    uint32 maxSize = 1;
+    optional uint32 maxSize = 1;
 }
 
 message VaultCollection {
@@ -30,16 +37,14 @@ message VaultCollection {
 }
 
 message VaultActionResult {
-    enum status {
-        Ok = 0;
-    }
-    string message = 1;
+    VaultStatus status = 1;
+    string message = 2;
 }
 
 service Vault {
-    rpc Create(stream VaultCreationRequest) returns (VaultActionResult);
+    rpc CreateVault(stream VaultCreationRequest) returns (VaultActionResult);
+    rpc DeleteVault(VaultRequest) returns (VaultActionResult);
     rpc GetContent(VaultRequest) returns (stream VaultData);
     rpc SetContent(stream VaultCreationRequest) returns (VaultActionResult);
-    rpc Delete(stream VaultRequest) returns (VaultActionResult);
-    rpc List(VaultCollectionRequest) returns (stream VaultCollection);
+    rpc ListVaults(VaultCollectionRequest) returns (stream VaultCollection);
 }
