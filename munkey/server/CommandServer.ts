@@ -7,13 +7,14 @@
 
 import { DeviceDiscoveryDecl, PeerIdentityDecl, PeerVaultDecl } from "../discovery";
 import {
+    ConnectionResult,
+    ConnectionStatus,
     ServiceContainer,
     VaultOption,
-    VaultStatus,
-    ConnectionResult,
-    ConnectionStatus
+    VaultResult,
+    VaultStatus
 } from "../services";
-import { fail, failItem, Option, Result, Status, successItem } from "../error";
+import { fail, failItem, Option, Result, Status, success, successItem } from "../error";
 import { randomUUID } from "crypto";
 
 
@@ -96,6 +97,41 @@ abstract class CommandServer {
                 unpack: option => option,
             };
         }
+    }
+
+    async onGetContent(vaultName: string): Promise<VaultOption<Buffer>> {
+        let vault = this.services.vault.getVaultByName(vaultName);
+        if (!vault) {
+            return failItem({
+                status: VaultStatus.NOT_FOUND, message: `No vault found with name ${vaultName}`
+            });
+        }
+
+        let content = await vault.getContent() ?? null;
+        if (content === null) {
+            return failItem<Buffer, VaultStatus>({
+                status: Status.FAILURE,
+                message: `Vault ${vaultName} has no content`,
+            });
+        }
+
+        return successItem(content, { message: "Vault contents retrieved successfully" });
+    }
+
+    async onSetContent(vaultName: string, content: Buffer): Promise<VaultResult> {
+        const vault = this.services.vault.getVaultByName(vaultName);
+        if (!vault) {
+            return fail({
+                status: VaultStatus.NOT_FOUND,
+                message: `No vault found with name ${vaultName}`,
+            });
+        }
+
+        const result = await vault.setContent(content);
+        if (!result) {
+            return fail({ message: "Vault content update failed" });
+        }
+        return success({ message: "Vault content update succeeded" });
     }
 
     async onVaultLink(
