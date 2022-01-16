@@ -18,17 +18,17 @@ message VaultRequest {
 
 message VaultEntry {
     string name = 1;
-    optional string id = 2;
+    string id = 2;
 }
 
 message VaultData {
     VaultStatus status = 1;
     VaultEntry entry = 2;
-    optional bytes data = 3;
+    bytes data = 3;
 }
 
 message VaultCollectionRequest {
-    optional uint32 maxSize = 1;
+    uint32 maxSize = 1;
 }
 
 message VaultCollection {

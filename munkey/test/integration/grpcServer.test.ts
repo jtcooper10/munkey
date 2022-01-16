@@ -2,7 +2,8 @@ import PipeCommandServer from "../../server/pipe";
 
 import {
     IVaultClient,
-    IVaultServer, VaultActionResult,
+    IVaultServer,
+    VaultActionResult,
     VaultClient,
     VaultCreationRequest,
     VaultData,
