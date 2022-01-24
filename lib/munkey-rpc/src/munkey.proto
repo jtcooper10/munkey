@@ -1,6 +1,8 @@
 syntax = "proto3";
 package munkey;
 
+option csharp_namespace = "MunkeyRpcClient";
+
 enum VaultStatus {
     Ok = 0;
     NotFound = 1;

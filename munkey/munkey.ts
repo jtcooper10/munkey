@@ -27,6 +27,7 @@ import path from "path";
 import PouchDB from "pouchdb";
 import MemDown from "memdown";
 import { ArgumentParser, Action, Namespace } from "argparse";
+import * as grpc from "@grpc/grpc-js";
 
 import {
     configureRoutes,
@@ -50,6 +51,7 @@ import {
     DatabaseContext,
 } from "./services";
 import { LoggingOptions } from "./logging";
+import PipeCommandServer from "./server/pipe";
 
 
 interface CommandLineArgs {
@@ -58,6 +60,7 @@ interface CommandLineArgs {
     discovery_port: number;
     in_memory: boolean;
     verbose: boolean;
+    shell: boolean;
 }
 
 
@@ -99,14 +102,23 @@ const parseCommandLineArgs = function(argv: string[] = process.argv.slice(2)): C
         help: "Print all logging information to the console",
         action: "store_true",
     });
+    parser.add_argument("-S", "--shell", {
+        help: "Run as an interactive shell; exits when shell exits",
+        action: "store_true",
+    });
 
     return parser.parse_args(argv) as CommandLineArgs;
 }
 
-async function main(services: ServiceContainer): Promise<void> {
+async function runShell(services: ServiceContainer): Promise<void> {
     const commands: ShellCommandServer = new ShellCommandServer(services);
     await commands.useStream(process.stdin)
         .then(() => process.exit(0));
+}
+
+function startService(services: ServiceContainer): Promise<grpc.Server> {
+    const rpcServer: PipeCommandServer = new PipeCommandServer(services);
+    return rpcServer.useGrpc(new grpc.Server());
 }
 
 const commandLineArgs = parseCommandLineArgs(process.argv.slice(2));
@@ -123,6 +135,7 @@ generateNewIdentity(commandLineArgs.root_dir)
             port: portNum,
             discovery_port: discoveryPortNum,
             in_memory: isInMemory,
+            shell: useShell,
             verbose,
         } = commandLineArgs;
         const loggingOptions: LoggingOptions = {
@@ -161,9 +174,21 @@ generateNewIdentity(commandLineArgs.root_dir)
                 rootPath,
                 discoveryPortNum,
                 pouch: LocalDB,
-            }));
+            }))
+            .then(async services => {
+                const grpcServer = await startService(services);
+                if (useShell) {
+                    await runShell(services);
+                }
+                
+                return new Promise(function(resolve, reject) {
+                    grpcServer.tryShutdown(err => {
+                        if (err) reject(err);
+                        resolve(services);
+                    });
+                });
+            });
     })
-    .then(services => main(services))
     .catch(err => {
         console.error(err);
     });
