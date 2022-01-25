@@ -41,9 +41,11 @@ export default function createVaultServer<T extends CommandServer>(commands: T):
         respond(null, response);
     }
     
-    function mapVaultData(content: VaultOption<Buffer>, respond: sendUnaryData<VaultData>) {
-        const response = new VaultData()
-            .setStatus(RpcVaultStatus.OK);
+    function mapVaultData(response: VaultData,
+                          content: VaultOption<Buffer>,
+                          respond: sendUnaryData<VaultData>)
+    {
+        response.setStatus(RpcVaultStatus.OK);
         switch (content.status) {
             case VaultStatus.NOT_FOUND:
                 response.setStatus(RpcVaultStatus.NOTFOUND);
@@ -86,8 +88,9 @@ export default function createVaultServer<T extends CommandServer>(commands: T):
 
         public getContent(call: ServerUnaryCall<VaultRequest, VaultData>,
                           respond: sendUnaryData<VaultData>): void {
+            const entry = new VaultEntry().setName(call.request.getName());
             commands.onGetContent(call.request.getName())
-                .then(content => mapVaultData(content, respond));
+                .then(content => mapVaultData(new VaultData().setEntry(entry), content, respond));
         }
 
         public async listVaults(call: ServerUnaryCall<VaultCollectionRequest, VaultCollection>,
