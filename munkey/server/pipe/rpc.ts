@@ -8,92 +8,106 @@ import {
     VaultData,
     VaultEntry,
     VaultRequest,
-    VaultStatus
+    VaultStatus as RpcVaultStatus,
 } from "@munkey/munkey-rpc";
 import {
     sendUnaryData,
-    ServerReadableStream,
     ServerUnaryCall,
-    ServerWritableStream,
-    UntypedHandleCall
+    UntypedHandleCall,
 } from "@grpc/grpc-js";
-
+import {
+    VaultOption,
+    VaultResult,
+    VaultStatus,
+} from "../../services";
+import { Status } from "../../error";
 
 export default function createVaultServer<T extends CommandServer>(commands: T): IVaultServer {
+    function mapVaultResult(result: VaultResult, respond: sendUnaryData<VaultActionResult>) {
+        const response = new VaultActionResult()
+            .setMessage(result.message)
+            .setStatus(RpcVaultStatus.OK);
+
+        if (!result.success) {
+            switch (result.status) {
+                case VaultStatus.NOT_FOUND:
+                    response.setStatus(RpcVaultStatus.NOTFOUND);
+                    break;
+                default:
+                    return respond(new Error(result.message));
+            }
+        }
+
+        respond(null, response);
+    }
+    
+    function mapVaultData(content: VaultOption<Buffer>, respond: sendUnaryData<VaultData>) {
+        const response = new VaultData()
+            .setStatus(RpcVaultStatus.OK);
+        switch (content.status) {
+            case VaultStatus.NOT_FOUND:
+                response.setStatus(RpcVaultStatus.NOTFOUND);
+                break;
+            case Status.SUCCESS:
+                response.setStatus(RpcVaultStatus.OK).setData(content.data);
+                break;
+            default:
+                return respond(new Error(content.message));
+        }
+        
+        respond(null, response);
+    }
+    
     class VaultServer implements IVaultServer {
         [name: string]: UntypedHandleCall;
 
-        public createVault(call: ServerReadableStream<VaultCreationRequest, VaultActionResult>,
+        public createVault(call: ServerUnaryCall<VaultCreationRequest, VaultActionResult>,
                            respond: sendUnaryData<VaultActionResult>): void
         {
-            call.on("data", data => {
-                commands.onCreateVault(data.getName(), Buffer.from(data.getInitialdata()))
-                    .then(result => {
-                        if (!result.success) {
-                            return respond(new Error(result.message));
-                        }
-
-                        respond(null,
-                            new VaultActionResult()
-                                .setMessage(result.message)
-                                .setStatus(VaultStatus.OK)
-                        );
-                    });
-            });
-        }
+            commands
+                .onCreateVault(call.request.getName(), Buffer.from(call.request.getInitialdata()))
+                .then(opt => {
+                    if (!opt.success) {
+                        return respond(new Error(opt.message));
+                    }
+                    
+                    respond(null, new VaultActionResult()
+                        .setMessage(opt.message)
+                        .setStatus(RpcVaultStatus.OK));
+                });
+        };
 
         public deleteVault(call: ServerUnaryCall<VaultRequest, VaultActionResult>,
                            respond: sendUnaryData<VaultActionResult>): void
         {
-            call.on("data", async data => {
-                const deleteResult = await commands.onDeleteVault(data.getName());
-                if (!deleteResult.success) {
-                    return respond(new Error(), null);
-                }
-                respond(null,
-                    new VaultActionResult()
-                        .setMessage(deleteResult.message)
-                        .setStatus(VaultStatus.OK)
-                );
-            });
+            commands.onDeleteVault(call.request.getName())
+                .then(result => mapVaultResult(result, respond));
         }
 
-        public getContent(call: ServerWritableStream<VaultRequest, VaultData>): void {
+        public getContent(call: ServerUnaryCall<VaultRequest, VaultData>,
+                          respond: sendUnaryData<VaultData>): void {
             commands.onGetContent(call.request.getName())
-                .then(content => {
-                    call.write(
-                        new VaultData()
-                            .setEntry(new VaultEntry().setName(call.request.getName()))
-                            .setData(content.unpack(Buffer.from("{\"no_content\": null}")))
-                            .setStatus(VaultStatus.OK)
-                    );
-                });
+                .then(content => mapVaultData(content, respond));
         }
 
-        public listVaults(call: ServerWritableStream<VaultCollectionRequest, VaultCollection>): void {
-            call.write(
-                new VaultCollection()
-                    .setSize(0)
-                    .setListList([]),
-                () => call.end());
-        }
-
-        public setContent(call: ServerReadableStream<VaultCreationRequest, VaultActionResult>,
-                   respond: sendUnaryData<VaultActionResult>): void
+        public async listVaults(call: ServerUnaryCall<VaultCollectionRequest, VaultCollection>,
+                                respond: sendUnaryData<VaultCollection>): Promise<void>
         {
-            call.on("data", data => {
-                commands.onSetContent(data.getName(), data.getInitialdata())
-                    .then(content => {
-                        if (!content.success) {
-                            return respond(new Error(content.message));
-                        }
-                        respond(null,
-                            new VaultActionResult()
-                                .setMessage(content.message)
-                                .setStatus(VaultStatus.OK)
-                        );
-                    });
-            });
+            const response = new VaultCollection().setSize(0);
+            for await (const vault of commands.services.vault.getActiveVaults()) {
+                response.addList(new VaultEntry()
+                    .setName(vault.nickname)
+                    .setId(vault.vaultId));
+                response.setSize(response.getSize() + 1);
+            }
+            respond(null, response);
+        }
+
+        public setContent(call: ServerUnaryCall<VaultCreationRequest, VaultActionResult>,
+                          respond: sendUnaryData<VaultActionResult>): void
+        {
+            commands.onSetContent(call.request.getName(), Buffer.from(call.request.getInitialdata()))
+                .then(result => mapVaultResult(result, respond));
         }
 
     }

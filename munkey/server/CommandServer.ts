@@ -28,7 +28,7 @@ import { randomUUID } from "crypto";
  */
 abstract class CommandServer {
 
-    protected constructor(protected services: ServiceContainer) {
+    protected constructor(public services: ServiceContainer) {
 
     }
 

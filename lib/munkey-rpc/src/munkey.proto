@@ -44,9 +44,9 @@ message VaultActionResult {
 }
 
 service Vault {
-    rpc CreateVault(stream VaultCreationRequest) returns (VaultActionResult);
+    rpc CreateVault(VaultCreationRequest) returns (VaultActionResult);
     rpc DeleteVault(VaultRequest) returns (VaultActionResult);
-    rpc GetContent(VaultRequest) returns (stream VaultData);
-    rpc SetContent(stream VaultCreationRequest) returns (VaultActionResult);
-    rpc ListVaults(VaultCollectionRequest) returns (stream VaultCollection);
+    rpc GetContent(VaultRequest) returns (VaultData);
+    rpc SetContent(VaultCreationRequest) returns (VaultActionResult);
+    rpc ListVaults(VaultCollectionRequest) returns (VaultCollection);
 }
