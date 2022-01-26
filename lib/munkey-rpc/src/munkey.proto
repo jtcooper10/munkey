@@ -1,0 +1,52 @@
+syntax = "proto3";
+package munkey;
+
+option csharp_namespace = "MunkeyRpcClient";
+
+enum VaultStatus {
+    Ok = 0;
+    NotFound = 1;
+    Conflict = 2;
+}
+
+message VaultCreationRequest {
+    string name = 1;
+    bytes initialData = 2;
+}
+
+message VaultRequest {
+    string name = 1;
+}
+
+message VaultEntry {
+    string name = 1;
+    string id = 2;
+}
+
+message VaultData {
+    VaultStatus status = 1;
+    VaultEntry entry = 2;
+    bytes data = 3;
+}
+
+message VaultCollectionRequest {
+    uint32 maxSize = 1;
+}
+
+message VaultCollection {
+    uint32 size = 1;
+    repeated VaultEntry list = 2;
+}
+
+message VaultActionResult {
+    VaultStatus status = 1;
+    string message = 2;
+}
+
+service Vault {
+    rpc CreateVault(VaultCreationRequest) returns (VaultActionResult);
+    rpc DeleteVault(VaultRequest) returns (VaultActionResult);
+    rpc GetContent(VaultRequest) returns (VaultData);
+    rpc SetContent(VaultCreationRequest) returns (VaultActionResult);
+    rpc ListVaults(VaultCollectionRequest) returns (VaultCollection);
+}

@@ -20,19 +20,16 @@ def main(args):
         exe = f"{exe}.cmd"
     ts_path.mkdir(exist_ok=True, parents=True)
 
-    try:
-        check_call([
-            "protoc",
-            f"--plugin=protoc-gen-ts={ts_plugin_path}",
-            f"--plugin=protoc-gen-grpc={grpc_plugin_path}",
-            f"--ts_out=grpc_js:{ts_path}",
-            f"--js_out=import_style=commonjs:{ts_path}",
-            f"--grpc_out=grpc_js:{ts_path}",
-            f"-I{src_path}",
-            "test.proto",
-        ])
-    except CalledProcessError as err:
-        print(err)
+    check_call([
+        "protoc",
+        f"--plugin=protoc-gen-ts={ts_plugin_path}",
+        f"--plugin=protoc-gen-grpc={grpc_plugin_path}",
+        f"--ts_out=grpc_js:{ts_path}",
+        f"--js_out=import_style=commonjs,binary:{ts_path}",
+        f"--grpc_out=grpc_js:{ts_path}",
+        f"-I{src_path}",
+        "munkey.proto",
+    ])
 
 def extend_paths(path_list: "list[pathlib.Path]"):
     if os.name == "nt":

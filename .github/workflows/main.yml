@@ -16,7 +16,12 @@ jobs:
       - uses: actions/checkout@v2
 
       - name: Install system dependencies
-        run: sudo apt-get -y install protobuf-compiler
+        run: |
+          sudo apt-get install -y curl unzip
+          curl -OL https://github.com/protocolbuffers/protobuf/releases/download/v3.19.3/protoc-3.19.3-linux-x86_64.zip
+          sudo unzip -o protoc-3.19.3-linux-x86_64.zip -d /usr/local bin/protoc
+          sudo unzip -o protoc-3.19.3-linux-x86_64.zip -d /usr/local 'include/*'
+          sudo chmod +x /usr/local/bin/protoc
 
       # Set up local dependencies
       - name: Setup for dependency `munkey-rpc`
