@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -36,7 +37,8 @@ namespace MunkeyCli
             while ((key = Console.ReadKey(true)).Key != ConsoleKey.Enter) {
                 builder.Append(key.KeyChar);
             }
-            
+
+            Console.WriteLine();
             return builder.ToString();
         }
 
@@ -61,6 +63,30 @@ namespace MunkeyCli
                 cryptoStream.Write(plaintextData);
             }
             return memoryStream.ToArray();
+        }
+
+        public string Decrypt(byte[] encryptedData)
+        {
+            string decryptedData;
+            // The first FILL_SIZE bytes are just the unencrypted fill data,
+            // everything else is the encrypted portion.
+            // Here, we split [fill,encrypted] into [fill] and [encrypted].
+            byte[] fillData = encryptedData.Take(FILL_SIZE).ToArray();
+            encryptedData = encryptedData.Skip(FILL_SIZE).ToArray();
+
+            using var crypt = Aes.Create();
+            crypt.Key = _key;
+            crypt.IV = fillData;
+            crypt.Mode = CipherMode.CBC;
+
+            ICryptoTransform decrypt = crypt.CreateDecryptor(crypt.Key, crypt.IV);
+            using MemoryStream memoryStream = new(encryptedData);
+            using (CryptoStream cryptoStream = new(memoryStream, decrypt, CryptoStreamMode.Read)) {
+                using StreamReader reader = new(cryptoStream);
+                decryptedData = reader.ReadToEnd();
+            }
+            
+            return decryptedData;
         }
 
         private static byte[] GenerateFill()
