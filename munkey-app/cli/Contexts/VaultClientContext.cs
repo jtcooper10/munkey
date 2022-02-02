@@ -65,6 +65,22 @@ namespace MunkeyCli
                 : $"Update unsuccessful: {response.Message}");
         }
 
+        public async Task VaultList()
+        {
+            var vaultCollection = await _client.ListVaultsAsync(new VaultCollectionRequest
+            {
+                MaxSize = 1,
+            });
+            if (vaultCollection.Size <= 0) {
+                Console.WriteLine("No vaults found");
+                return;
+            }
+
+            foreach (var vault in vaultCollection.List) {
+                Console.WriteLine($"{vault.Name} = Vault[{vault.Id}]");
+            }
+        }
+
         private async Task<JsonNode?> FetchVaultContent(string vaultName)
         {
             var context = AuthenticationContext.PromptPassword();

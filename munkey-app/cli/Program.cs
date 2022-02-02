@@ -38,7 +38,7 @@ namespace MunkeyCli
                 await GetVaultContext().GetVaultEntry(vaultName, entryKey), vaultNameOpt, vaultKeyArg);
             vaultCommand.AddCommand(vaultGetCommand);
             
-            // $ vault get
+            // $ vault set
             Command vaultSetCommand = new("set");
             Argument<string> vaultValArg = new("value");
             vaultSetCommand.AddArgument(vaultKeyArg);
@@ -48,6 +48,12 @@ namespace MunkeyCli
                 await GetVaultContext().SetVaultEntry(vaultName, (entryKey, entryValue)),
                 vaultNameOpt, vaultKeyArg, vaultValArg);
             vaultCommand.AddCommand(vaultSetCommand);
+
+            // $ vault list
+            Command vaultListCommand = new("list");
+            vaultListCommand.SetHandler(async () =>
+                await GetVaultContext().VaultList());
+            vaultCommand.AddCommand(vaultListCommand);
 
             return vaultCommand;
         }
