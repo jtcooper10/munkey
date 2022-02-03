@@ -61,6 +61,7 @@ interface CommandLineArgs {
     in_memory: boolean;
     verbose: boolean;
     shell: boolean;
+    rpc: number;
 }
 
 
@@ -106,6 +107,11 @@ const parseCommandLineArgs = function(argv: string[] = process.argv.slice(2)): C
         help: "Run as an interactive shell; exits when shell exits",
         action: "store_true",
     });
+    parser.add_argument("-R", "--rpc", {
+        help: "Port number where the RPC server should run on",
+        type: "int",
+        default: "5050",
+    });
 
     return parser.parse_args(argv) as CommandLineArgs;
 }
@@ -116,9 +122,9 @@ async function runShell(services: ServiceContainer): Promise<void> {
         .then(() => process.exit(0));
 }
 
-function startService(services: ServiceContainer): Promise<grpc.Server> {
+function startService(services: ServiceContainer, rpcPort: number): Promise<grpc.Server> {
     const rpcServer: PipeCommandServer = new PipeCommandServer(services);
-    return rpcServer.useGrpc(new grpc.Server());
+    return rpcServer.useGrpc(new grpc.Server(), `127.0.0.1:${rpcPort}`);
 }
 
 const commandLineArgs = parseCommandLineArgs(process.argv.slice(2));
@@ -136,6 +142,7 @@ generateNewIdentity(commandLineArgs.root_dir)
             discovery_port: discoveryPortNum,
             in_memory: isInMemory,
             shell: useShell,
+            rpc: rpcPort,
             verbose,
         } = commandLineArgs;
         const loggingOptions: LoggingOptions = {
@@ -176,7 +183,7 @@ generateNewIdentity(commandLineArgs.root_dir)
                 pouch: LocalDB,
             }))
             .then(async services => {
-                const grpcServer = await startService(services);
+                const grpcServer = await startService(services, rpcPort);
                 if (useShell) {
                     await runShell(services);
                 }

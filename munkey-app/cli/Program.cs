@@ -54,11 +54,24 @@ namespace MunkeyCli
             vaultListCommand.SetHandler(async () =>
                 await GetVaultContext().VaultList());
             vaultCommand.AddCommand(vaultListCommand);
+            
+            // $ vault link
+            Command vaultLinkCommand = new("link");
+            Option<int> vaultPortOption = new(new[] {"--port", "-p"});
+            Option<string> vaultHostOption = new(new[] {"--host", "-h"});
+            vaultLinkCommand.AddOption(vaultPortOption);
+            vaultLinkCommand.AddOption(vaultHostOption);
+            vaultLinkCommand.AddArgument(vaultNameArg);
+            vaultLinkCommand.SetHandler(async (string vaultName, string hostname, int portNum) =>
+            {
+                await GetVaultContext().VaultLink(vaultName, hostname, portNum);
+            }, vaultNameArg, vaultHostOption, vaultPortOption);
+            vaultCommand.AddCommand(vaultLinkCommand);
 
             return vaultCommand;
         }
 
-        private static VaultClientContext GetVaultContext(string port = "8000")
+        private static VaultClientContext GetVaultContext(string port = "5050")
         {
             GrpcChannel channel = GrpcChannel.ForAddress($"http://localhost:{port}", new GrpcChannelOptions
             {

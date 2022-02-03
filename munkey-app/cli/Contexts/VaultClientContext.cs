@@ -10,10 +10,12 @@ namespace MunkeyCli
     public class VaultClientContext
     {
         private readonly Vault.VaultClient _client;
+        private readonly VaultNetwork.VaultNetworkClient _network;
         
         public VaultClientContext(ChannelBase channelBase)
         {
             this._client = new Vault.VaultClient(channelBase);
+            this._network = new VaultNetwork.VaultNetworkClient(channelBase);
         }
 
         public async Task CreateVault(string vaultName)
@@ -79,6 +81,26 @@ namespace MunkeyCli
             foreach (var vault in vaultCollection.List) {
                 Console.WriteLine($"{vault.Name} = Vault[{vault.Id}]");
             }
+        }
+
+        public async Task VaultLink(string vaultName, string hostname, int portNum)
+        {
+            var result = _network.LinkVault(new RemoteVaultLinkRequest
+            {
+                Location = new()
+                {
+                    Host = hostname,
+                    Port = portNum.ToString(),
+                },
+                VaultName = vaultName,
+            });
+
+            if (result.Status != VaultStatus.Ok) {
+                Console.WriteLine($"Vault linking failed: {result.Message}");
+                return;
+            }
+            
+            Console.WriteLine("Vault linking was successful");
         }
 
         private async Task<JsonNode?> FetchVaultContent(string vaultName)
