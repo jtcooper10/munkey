@@ -50,3 +50,35 @@ service Vault {
     rpc SetContent(VaultCreationRequest) returns (VaultActionResult);
     rpc ListVaults(VaultCollectionRequest) returns (VaultCollection);
 }
+
+message RemoteVaultLinkRequest {
+    string vaultName = 1;
+    message VaultLocation {
+        string host = 1;
+        string port = 2;
+    }
+    VaultLocation location = 2;
+}
+
+message VaultNetworkStatusRequest {
+    enum VaultNetworkStatus {
+        Enabled = 0;
+        Disabled = 1;
+    }
+    enum VaultNetworkSystem {
+        PeerNetwork = 0;
+        PeerDiscovery = 1;
+    }
+    message VaultNetworkChangeRequest {
+        VaultNetworkSystem whichSystem = 1;
+        VaultNetworkStatus setStatusTo = 2;
+    }
+    
+    repeated VaultNetworkChangeRequest requests = 1;
+}
+
+service VaultNetwork {
+    rpc LinkVault(RemoteVaultLinkRequest) returns (VaultActionResult);
+    rpc ResolveVault(VaultRequest) returns (stream RemoteVaultLinkRequest);
+    rpc SetNetworkStatus(VaultNetworkStatusRequest) returns (VaultActionResult);
+}
