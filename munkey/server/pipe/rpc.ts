@@ -81,7 +81,7 @@ export default function createVaultServer<T extends CommandServer>(commands: T):
                         .setMessage(opt.message)
                         .setStatus(RpcVaultStatus.OK));
                 });
-        };
+        }
 
         public deleteVault(call: ServerUnaryCall<VaultRequest, VaultActionResult>,
                            respond: sendUnaryData<VaultActionResult>): void
