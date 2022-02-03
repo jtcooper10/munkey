@@ -178,6 +178,8 @@ abstract class CommandServer {
                 message: `Remote vault ${vaultName}@${hostname}:${portNum} could not be resolved`,
             };
         }
+        
+        return success({ message: "Vault link successful" });
     }
 
     async onLinkUp(portNum: number): Promise<Option<number>> {
