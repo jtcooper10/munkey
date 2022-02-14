@@ -1,0 +1,34 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# 
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "munkey-app", "munkey-app", "{8899AAEE-B520-4098-A8CB-54F5C35BEBDE}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MunkeyCli", "munkey-app\cli\MunkeyCli.csproj", "{CEDD82CA-6C6B-48F3-9486-D06579ED0240}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
+		Release|Any CPU = Release|Any CPU
+		Release|x64 = Release|x64
+		Release|x86 = Release|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{CEDD82CA-6C6B-48F3-9486-D06579ED0240}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CEDD82CA-6C6B-48F3-9486-D06579ED0240}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CEDD82CA-6C6B-48F3-9486-D06579ED0240}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{CEDD82CA-6C6B-48F3-9486-D06579ED0240}.Debug|x64.Build.0 = Debug|Any CPU
+		{CEDD82CA-6C6B-48F3-9486-D06579ED0240}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{CEDD82CA-6C6B-48F3-9486-D06579ED0240}.Debug|x86.Build.0 = Debug|Any CPU
+		{CEDD82CA-6C6B-48F3-9486-D06579ED0240}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CEDD82CA-6C6B-48F3-9486-D06579ED0240}.Release|Any CPU.Build.0 = Release|Any CPU
+		{CEDD82CA-6C6B-48F3-9486-D06579ED0240}.Release|x64.ActiveCfg = Release|Any CPU
+		{CEDD82CA-6C6B-48F3-9486-D06579ED0240}.Release|x64.Build.0 = Release|Any CPU
+		{CEDD82CA-6C6B-48F3-9486-D06579ED0240}.Release|x86.ActiveCfg = Release|Any CPU
+		{CEDD82CA-6C6B-48F3-9486-D06579ED0240}.Release|x86.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{CEDD82CA-6C6B-48F3-9486-D06579ED0240} = {8899AAEE-B520-4098-A8CB-54F5C35BEBDE}
+	EndGlobalSection
+EndGlobal
