@@ -102,6 +102,31 @@ namespace MunkeyCli
             
             Console.WriteLine("Vault linking was successful");
         }
+        
+        public async Task ResolveVaults(string vaultName)
+        {
+            using var networkStream = _network.ResolveVault(new VaultRequest
+            {
+                Name = vaultName,
+            });
+
+            await foreach (var resolvedVault in networkStream.ResponseStream.ReadAllAsync())
+            {
+                if (!Int32.TryParse(resolvedVault.Location.Port, out var portNum))
+                {
+                    continue;
+                }
+                
+                Console.Write($"Vault found ({resolvedVault.VaultName} @ {resolvedVault.Location.Host}:{portNum}), " + 
+                              "Link? [y/N] ");
+                if ((Console.ReadLine()?.ToLower() ?? "n") != "y")
+                    continue;
+                
+                await VaultLink(vaultName, resolvedVault.Location.Host, portNum);
+            }
+            
+            Console.WriteLine("No other vaults found.");
+        }
 
         private async Task<JsonNode?> FetchVaultContent(string vaultName)
         {

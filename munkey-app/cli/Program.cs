@@ -57,14 +57,32 @@ namespace MunkeyCli
             
             // $ vault link
             Command vaultLinkCommand = new("link");
-            Option<int> vaultPortOption = new(new[] {"--port", "-p"});
-            Option<string> vaultHostOption = new(new[] {"--host", "-h"});
+            Option<int?> vaultPortOption = new(new[] {"--port", "-p"});
+            Option<string?> vaultHostOption = new(new[] {"--host", "-h"});
             vaultLinkCommand.AddOption(vaultPortOption);
             vaultLinkCommand.AddOption(vaultHostOption);
             vaultLinkCommand.AddArgument(vaultNameArg);
-            vaultLinkCommand.SetHandler(async (string vaultName, string hostname, int portNum) =>
+            vaultLinkCommand.SetHandler(async (string vaultName, string? hostname, int? portNum) =>
             {
-                await GetVaultContext().VaultLink(vaultName, hostname, portNum);
+                if (hostname == null)
+                {
+                    await GetVaultContext().ResolveVaults(vaultName);
+                    return;
+                }
+
+                int validPortNum = portNum ?? 0;
+                if (portNum == null)
+                {
+                    string[] hostPair = hostname.Split(":");
+                    string portString = hostname.Split(":").Last();
+                    if (!Int32.TryParse(portString, out validPortNum))
+                    {
+                        Console.WriteLine("Cannot resolve vault location; port number invalid or missing");
+                    }
+                    hostname = hostPair[0];
+                }
+                
+                await GetVaultContext().VaultLink(vaultName, hostname, validPortNum);
             }, vaultNameArg, vaultHostOption, vaultPortOption);
             vaultCommand.AddCommand(vaultLinkCommand);
 

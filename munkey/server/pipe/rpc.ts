@@ -180,7 +180,23 @@ export function createVaultNetworkServer<T extends CommandServer>(commands: T): 
         }
 
         resolveVault(call: ServerWritableStream<VaultRequest, RemoteVaultLinkRequest>): void {
-            call.end();
+            const resolverTask = (async function() {
+                const vaultName = call.request.getName();
+                for await (let [hostDecl, peerDecl] of commands.services.activity.getAllDevices()) {
+                    const location = new RemoteVaultLinkRequest.VaultLocation()
+                        .setHost(hostDecl.hostname)
+                        .setPort(hostDecl.portNum.toString());
+                    const vaultEntries = peerDecl.vaults.filter(vault => vault.nickname === vaultName);
+                    for (let vault of vaultEntries) {
+                        const response = new RemoteVaultLinkRequest()
+                            .setVaultname(vaultName)
+                            .setLocation(location);
+                        call.write(response);
+                    }
+                }
+            })();
+            
+            resolverTask.then(() => call.end());
         }
 
         setNetworkStatus(call: ServerUnaryCall<VaultNetworkStatusRequest, VaultActionResult>,
