@@ -94,7 +94,7 @@ namespace MunkeyCli
             return RandomNumberGenerator.GetBytes(FILL_SIZE);
         }
 
-        private static byte[] GenerateKey(string password)
+        public static byte[] GenerateKey(string password)
         {
             // TODO: in all interfaces, replace salt with generated salt.
             byte[] salt = Encoding.ASCII.GetBytes("munkey-salt");

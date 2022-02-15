@@ -11,17 +11,29 @@ namespace MunkeyCli
     {
         private readonly Vault.VaultClient _client;
         private readonly VaultNetwork.VaultNetworkClient _network;
-        
-        public VaultClientContext(ChannelBase channelBase)
+        private readonly AuthenticationContext _authentication;
+
+        public VaultClientContext(
+            Vault.VaultClient client,
+            VaultNetwork.VaultNetworkClient networkClient,
+            AuthenticationContext authentication)
         {
-            this._client = new Vault.VaultClient(channelBase);
-            this._network = new VaultNetwork.VaultNetworkClient(channelBase);
+            this._client = client;
+            this._network = networkClient;
+            this._authentication = authentication;
+        }
+
+        public static VaultClientContext Create(ChannelBase channel)
+        {
+            return new VaultClientContext(
+                new Vault.VaultClient(channel),
+                new VaultNetwork.VaultNetworkClient(channel),
+                AuthenticationContext.PromptPassword());
         }
 
         public async Task CreateVault(string vaultName)
         {
-            var context = AuthenticationContext.PromptPassword();
-            byte[] initialData = context.Encrypt("{}");
+            byte[] initialData = _authentication.Encrypt("{}");
             var response = await _client.CreateVaultAsync(new VaultCreationRequest
             {
                 Name = vaultName,
@@ -47,15 +59,14 @@ namespace MunkeyCli
 
         public async Task SetVaultEntry(string vaultName, (string, string) entry)
         {
-            var context = AuthenticationContext.PromptPassword();
-            JsonNode? result = await FetchVaultContent(context, vaultName);
+            JsonNode? result = await FetchVaultContent(_authentication, vaultName);
             if (result == null) {
                 Console.WriteLine("Invalid JSON; aborting");
                 return;
             }
 
             result[entry.Item1] = entry.Item2;
-            byte[] serializedData = context.Encrypt(result.ToJsonString());
+            byte[] serializedData = _authentication.Encrypt(result.ToJsonString());
             var response = await _client.SetContentAsync(new VaultCreationRequest
             {
                 Name = vaultName,
@@ -130,8 +141,7 @@ namespace MunkeyCli
 
         private async Task<JsonNode?> FetchVaultContent(string vaultName)
         {
-            var context = AuthenticationContext.PromptPassword();
-            return await FetchVaultContent(context, vaultName);
+            return await FetchVaultContent(_authentication, vaultName);
         }
 
         private async Task<JsonNode?> FetchVaultContent(AuthenticationContext context, string vaultName)

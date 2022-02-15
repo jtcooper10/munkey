@@ -95,7 +95,7 @@ namespace MunkeyCli
             {
                 Credentials = ChannelCredentials.Insecure,
             });
-            return new VaultClientContext(channel);
+            return VaultClientContext.Create(channel);
         }
     }
 }
