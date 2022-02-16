@@ -58,7 +58,7 @@ namespace MunkeyCli
             // `using` declaration doesn't work for `CryptoStream` for some reason; must use `using` block instead!
             // https://stackoverflow.com/questions/61761053/converting-a-cryptostream-to-using-declaration-makes-memory-stream-empty-when-te
             using MemoryStream memoryStream = new();
-            memoryStream.Write(crypt.IV, 0, 16);
+            memoryStream.Write(crypt.IV, 0, FILL_SIZE);
             using (CryptoStream cryptoStream = new(memoryStream, encrypt, CryptoStreamMode.Write)) {
                 cryptoStream.Write(plaintextData);
             }

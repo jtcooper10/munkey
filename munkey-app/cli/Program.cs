@@ -33,21 +33,20 @@ namespace MunkeyCli
             // $ vault get
             Command vaultGetCommand = new("get");
             Argument<string> vaultKeyArg = new("key");
-            Option<string> vaultNameOpt = new(new[] { "--vault", "-V" });
+            vaultGetCommand.AddArgument(vaultNameArg);
             vaultGetCommand.AddArgument(vaultKeyArg);
-            vaultGetCommand.AddOption(vaultNameOpt);
             vaultGetCommand.SetHandler<string, string>(command.VaultGet,
-                vaultNameOpt, vaultKeyArg);
+                vaultNameArg, vaultKeyArg);
             vaultCommand.AddCommand(vaultGetCommand);
             
             // $ vault set
             Command vaultSetCommand = new("set");
             Argument<string> vaultValArg = new("value");
+            vaultSetCommand.AddArgument(vaultNameArg);
             vaultSetCommand.AddArgument(vaultKeyArg);
             vaultSetCommand.AddArgument(vaultValArg);
-            vaultSetCommand.AddOption(vaultNameOpt);
             vaultSetCommand.SetHandler<string, string, string>(command.VaultSet,
-                vaultNameOpt, vaultKeyArg, vaultValArg);
+                vaultNameArg, vaultKeyArg, vaultValArg);
             vaultCommand.AddCommand(vaultSetCommand);
 
             // $ vault list

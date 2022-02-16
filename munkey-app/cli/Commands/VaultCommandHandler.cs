@@ -4,6 +4,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
+using Grpc.Core;
 using MunkeyCli.Contexts;
 
 namespace MunkeyCli.Commands
@@ -30,6 +31,10 @@ namespace MunkeyCli.Commands
             {
                 Console.WriteLine("Failed to encrypt starting data: " + ex.Message);
             }
+            catch (RpcException)
+            {
+                Console.WriteLine("Connection could not be established");
+            }
         }
 
         public async Task VaultGet(string vaultName, string entryKey)
@@ -38,9 +43,13 @@ namespace MunkeyCli.Commands
             {
                 await _context.Authenticate().GetVaultEntry(vaultName, entryKey);
             }
-            catch (CryptographicException)
+            catch (CryptographicException x)
             {
-                Console.WriteLine("The password provided is invalid");
+                Console.WriteLine("The password provided is invalid: " + x.Message);
+            }
+            catch (RpcException)
+            {
+                Console.WriteLine("Connection could not be established");
             }
         }
 
@@ -54,13 +63,24 @@ namespace MunkeyCli.Commands
             {
                 Console.WriteLine("The password provided is invalid");
             }
+            catch (RpcException)
+            {
+                Console.WriteLine("Connection could not be established");
+            }
         }
 
         public async Task VaultList()
         {
-            await foreach (var (name, id) in _context.VaultList())
+            try
             {
-                Console.WriteLine($"{name} = Vault[{id}]");
+                await foreach (var (name, id) in _context.VaultList())
+                {
+                    Console.WriteLine($"{name} = Vault[{id}]");
+                }
+            }
+            catch (RpcException)
+            {
+                Console.WriteLine("Connection could not be established");
             }
         }
 
@@ -84,7 +104,14 @@ namespace MunkeyCli.Commands
                 hostname = hostPair[0];
             }
 
-            await _context.VaultLink(vaultName, hostname, validPortNum);
+            try
+            {
+                await _context.VaultLink(vaultName, hostname, validPortNum);
+            }
+            catch (RpcException)
+            {
+                Console.WriteLine("Connection could not be established");
+            }
         }
     }
 }
