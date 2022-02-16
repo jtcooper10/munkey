@@ -2,6 +2,7 @@
 using System.CommandLine;
 using Grpc.Core;
 using Grpc.Net.Client;
+using MunkeyCli.Contexts;
 using MunkeyCli.Commands;
 
 namespace MunkeyCli

@@ -40,3 +40,10 @@ jobs:
         run: |
           npm install
           npm run test
+  run-cli-tests:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Run .NET command-line app tests
+      run: |
+        dotnet test .\munkey-app\MunkeyCliTest\
