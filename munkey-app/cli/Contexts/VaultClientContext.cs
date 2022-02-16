@@ -1,96 +1,57 @@
 ﻿using System;
-using System.Threading.Tasks;
-using Google.Protobuf;
 using MunkeyRpcClient;
 using Grpc.Core;
-using System.Text.Json.Nodes;
 
-namespace MunkeyCli
+namespace MunkeyCli.Contexts
 {
     public class VaultClientContext
     {
         private readonly Vault.VaultClient _client;
         private readonly VaultNetwork.VaultNetworkClient _network;
-        private readonly AuthenticationContext _authentication;
 
         public VaultClientContext(
             Vault.VaultClient client,
-            VaultNetwork.VaultNetworkClient networkClient,
-            AuthenticationContext authentication)
+            VaultNetwork.VaultNetworkClient networkClient)
         {
             this._client = client;
             this._network = networkClient;
-            this._authentication = authentication;
         }
 
         public static VaultClientContext Create(ChannelBase channel)
         {
             return new VaultClientContext(
                 new Vault.VaultClient(channel),
-                new VaultNetwork.VaultNetworkClient(channel),
-                AuthenticationContext.PromptPassword());
+                new VaultNetwork.VaultNetworkClient(channel));
         }
 
-        public async Task CreateVault(string vaultName)
+        public AuthenticatedClientContext Authenticate()
         {
-            byte[] initialData = _authentication.Encrypt("{}");
-            var response = await _client.CreateVaultAsync(new VaultCreationRequest
-            {
-                Name = vaultName,
-                InitialData = ByteString.CopyFrom(initialData),
-            });
-            Console.WriteLine(response.Message);
+            return Authenticate(AuthenticationContext.PromptPassword());
         }
 
-        public async Task GetVaultEntry(string vaultName, string entryKey)
+        public AuthenticatedClientContext Authenticate(string password)
         {
-            JsonNode? result = await FetchVaultContent(vaultName);
-            if (result == null) {
-                Console.WriteLine("Invalid JSON; aborting");
-                return;
-            }
-            if (result[entryKey] == null) {
-                Console.WriteLine("Entry not found");
-                return;
-            }
-
-            Console.WriteLine($"[{entryKey}] = {result[entryKey]}");
+            byte[] key = AuthenticationContext.GenerateKey(password);
+            return Authenticate(new AuthenticationContext(key));
         }
 
-        public async Task SetVaultEntry(string vaultName, (string, string) entry)
+        public AuthenticatedClientContext Authenticate(AuthenticationContext context)
         {
-            JsonNode? result = await FetchVaultContent(_authentication, vaultName);
-            if (result == null) {
-                Console.WriteLine("Invalid JSON; aborting");
-                return;
-            }
-
-            result[entry.Item1] = entry.Item2;
-            byte[] serializedData = _authentication.Encrypt(result.ToJsonString());
-            var response = await _client.SetContentAsync(new VaultCreationRequest
-            {
-                Name = vaultName,
-                InitialData = ByteString.CopyFrom(serializedData),
-            });
-
-            Console.WriteLine(response.Status == VaultStatus.Ok
-                ? $"[{entry.Item1}] = {entry.Item2}"
-                : $"Update unsuccessful: {response.Message}");
+            return new AuthenticatedClientContext(_client, _network, context);
         }
 
-        public async Task VaultList()
+        public async IAsyncEnumerable<(string, string)> VaultList()
         {
             var vaultCollection = await _client.ListVaultsAsync(new VaultCollectionRequest
             {
                 MaxSize = 1,
             });
             if (vaultCollection.Size <= 0) {
-                Console.WriteLine("No vaults found");
-                return;
+                yield break;
             }
 
             foreach (var vault in vaultCollection.List) {
-                Console.WriteLine($"{vault.Name} = Vault[{vault.Id}]");
+                yield return (vault.Name, vault.Id);
             }
         }
 
@@ -137,21 +98,6 @@ namespace MunkeyCli
             }
             
             Console.WriteLine("No other vaults found.");
-        }
-
-        private async Task<JsonNode?> FetchVaultContent(string vaultName)
-        {
-            return await FetchVaultContent(_authentication, vaultName);
-        }
-
-        private async Task<JsonNode?> FetchVaultContent(AuthenticationContext context, string vaultName)
-        {
-            var response = await _client.GetContentAsync(new VaultRequest
-            {
-                Name = vaultName,
-            });
-            string decrypted = context.Decrypt(response.Data.ToByteArray());
-            return JsonNode.Parse(decrypted);
         }
     }
 }

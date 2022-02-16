@@ -2,6 +2,7 @@
 using System.CommandLine;
 using Grpc.Core;
 using Grpc.Net.Client;
+using MunkeyCli.Commands;
 
 namespace MunkeyCli
 {
@@ -9,14 +10,15 @@ namespace MunkeyCli
     {
         public static void Main(string[] args)
         {
+            VaultCommandHandler command = new(GetVaultContext());
             RootCommand rootCommand = new()
             {
-                GetVaultCommand(),
+                GetVaultCommand(command),
             };
             rootCommand.Invoke(args);
         }
 
-        private static Command GetVaultCommand()
+        public static Command GetVaultCommand(VaultCommandHandler command)
         {
             Command vaultCommand = new("vault");
             
@@ -24,8 +26,7 @@ namespace MunkeyCli
             Command vaultNewCommand = new("new");
             Argument<string> vaultNameArg = new("vault_name");
             vaultNewCommand.AddArgument(vaultNameArg);
-            vaultNewCommand.SetHandler(async (string vaultName) => 
-                await GetVaultContext().CreateVault(vaultName), vaultNameArg);
+            vaultNewCommand.SetHandler<string>(command.VaultNew, vaultNameArg);
             vaultCommand.AddCommand(vaultNewCommand);
             
             // $ vault get
@@ -34,8 +35,8 @@ namespace MunkeyCli
             Option<string> vaultNameOpt = new(new[] { "--vault", "-V" });
             vaultGetCommand.AddArgument(vaultKeyArg);
             vaultGetCommand.AddOption(vaultNameOpt);
-            vaultGetCommand.SetHandler(async (string vaultName, string entryKey) =>
-                await GetVaultContext().GetVaultEntry(vaultName, entryKey), vaultNameOpt, vaultKeyArg);
+            vaultGetCommand.SetHandler<string, string>(command.VaultGet,
+                vaultNameOpt, vaultKeyArg);
             vaultCommand.AddCommand(vaultGetCommand);
             
             // $ vault set
@@ -44,15 +45,13 @@ namespace MunkeyCli
             vaultSetCommand.AddArgument(vaultKeyArg);
             vaultSetCommand.AddArgument(vaultValArg);
             vaultSetCommand.AddOption(vaultNameOpt);
-            vaultSetCommand.SetHandler(async (string vaultName, string entryKey, string entryValue) => 
-                await GetVaultContext().SetVaultEntry(vaultName, (entryKey, entryValue)),
+            vaultSetCommand.SetHandler<string, string, string>(command.VaultSet,
                 vaultNameOpt, vaultKeyArg, vaultValArg);
             vaultCommand.AddCommand(vaultSetCommand);
 
             // $ vault list
             Command vaultListCommand = new("list");
-            vaultListCommand.SetHandler(async () =>
-                await GetVaultContext().VaultList());
+            vaultListCommand.SetHandler(command.VaultList);
             vaultCommand.AddCommand(vaultListCommand);
             
             // $ vault link
@@ -62,28 +61,8 @@ namespace MunkeyCli
             vaultLinkCommand.AddOption(vaultPortOption);
             vaultLinkCommand.AddOption(vaultHostOption);
             vaultLinkCommand.AddArgument(vaultNameArg);
-            vaultLinkCommand.SetHandler(async (string vaultName, string? hostname, int? portNum) =>
-            {
-                if (hostname == null)
-                {
-                    await GetVaultContext().ResolveVaults(vaultName);
-                    return;
-                }
-
-                int validPortNum = portNum ?? 0;
-                if (portNum == null)
-                {
-                    string[] hostPair = hostname.Split(":");
-                    string portString = hostname.Split(":").Last();
-                    if (!Int32.TryParse(portString, out validPortNum))
-                    {
-                        Console.WriteLine("Cannot resolve vault location; port number invalid or missing");
-                    }
-                    hostname = hostPair[0];
-                }
-                
-                await GetVaultContext().VaultLink(vaultName, hostname, validPortNum);
-            }, vaultNameArg, vaultHostOption, vaultPortOption);
+            vaultLinkCommand.SetHandler<string, string?, int?>(command.VaultLink,
+                vaultNameArg, vaultHostOption, vaultPortOption);
             vaultCommand.AddCommand(vaultLinkCommand);
 
             return vaultCommand;
