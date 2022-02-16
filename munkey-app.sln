@@ -1,0 +1,57 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.32014.148
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "munkey-app", "munkey-app", "{8899AAEE-B520-4098-A8CB-54F5C35BEBDE}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MunkeyCli", "munkey-app\cli\MunkeyCli.csproj", "{CEDD82CA-6C6B-48F3-9486-D06579ED0240}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MunkeyCliTest", "munkey-app\MunkeyCliTest\MunkeyCliTest.csproj", "{16C2FAF8-77CD-4A24-8FA3-221D909A525E}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
+		Release|Any CPU = Release|Any CPU
+		Release|x64 = Release|x64
+		Release|x86 = Release|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{CEDD82CA-6C6B-48F3-9486-D06579ED0240}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CEDD82CA-6C6B-48F3-9486-D06579ED0240}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CEDD82CA-6C6B-48F3-9486-D06579ED0240}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{CEDD82CA-6C6B-48F3-9486-D06579ED0240}.Debug|x64.Build.0 = Debug|Any CPU
+		{CEDD82CA-6C6B-48F3-9486-D06579ED0240}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{CEDD82CA-6C6B-48F3-9486-D06579ED0240}.Debug|x86.Build.0 = Debug|Any CPU
+		{CEDD82CA-6C6B-48F3-9486-D06579ED0240}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CEDD82CA-6C6B-48F3-9486-D06579ED0240}.Release|Any CPU.Build.0 = Release|Any CPU
+		{CEDD82CA-6C6B-48F3-9486-D06579ED0240}.Release|x64.ActiveCfg = Release|Any CPU
+		{CEDD82CA-6C6B-48F3-9486-D06579ED0240}.Release|x64.Build.0 = Release|Any CPU
+		{CEDD82CA-6C6B-48F3-9486-D06579ED0240}.Release|x86.ActiveCfg = Release|Any CPU
+		{CEDD82CA-6C6B-48F3-9486-D06579ED0240}.Release|x86.Build.0 = Release|Any CPU
+		{16C2FAF8-77CD-4A24-8FA3-221D909A525E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{16C2FAF8-77CD-4A24-8FA3-221D909A525E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{16C2FAF8-77CD-4A24-8FA3-221D909A525E}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{16C2FAF8-77CD-4A24-8FA3-221D909A525E}.Debug|x64.Build.0 = Debug|Any CPU
+		{16C2FAF8-77CD-4A24-8FA3-221D909A525E}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{16C2FAF8-77CD-4A24-8FA3-221D909A525E}.Debug|x86.Build.0 = Debug|Any CPU
+		{16C2FAF8-77CD-4A24-8FA3-221D909A525E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{16C2FAF8-77CD-4A24-8FA3-221D909A525E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{16C2FAF8-77CD-4A24-8FA3-221D909A525E}.Release|x64.ActiveCfg = Release|Any CPU
+		{16C2FAF8-77CD-4A24-8FA3-221D909A525E}.Release|x64.Build.0 = Release|Any CPU
+		{16C2FAF8-77CD-4A24-8FA3-221D909A525E}.Release|x86.ActiveCfg = Release|Any CPU
+		{16C2FAF8-77CD-4A24-8FA3-221D909A525E}.Release|x86.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{CEDD82CA-6C6B-48F3-9486-D06579ED0240} = {8899AAEE-B520-4098-A8CB-54F5C35BEBDE}
+		{16C2FAF8-77CD-4A24-8FA3-221D909A525E} = {8899AAEE-B520-4098-A8CB-54F5C35BEBDE}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {7829098B-2B1E-45E5-8662-CB218ECE26C7}
+	EndGlobalSection
+EndGlobal

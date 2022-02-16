@@ -75,7 +75,7 @@ describe("Test gRPC vault server implementations", function() {
         });
         server = createVaultServer(commands);
         grpcServer = await commands.useGrpc(new grpc.Server());
-        client = new VaultClient("127.0.0.1:8000", grpc.credentials.createInsecure());
+        client = new VaultClient("127.0.0.1:5050", grpc.credentials.createInsecure());
     });
 
     beforeEach(function() {

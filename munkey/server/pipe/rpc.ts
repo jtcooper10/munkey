@@ -1,6 +1,7 @@
 import CommandServer from "../CommandServer";
 import {
     IVaultServer,
+    IVaultNetworkServer,
     VaultActionResult,
     VaultCollection,
     VaultCollectionRequest,
@@ -9,10 +10,13 @@ import {
     VaultEntry,
     VaultRequest,
     VaultStatus as RpcVaultStatus,
+    RemoteVaultLinkRequest,
+    VaultNetworkStatusRequest,
 } from "@munkey/munkey-rpc";
 import {
     sendUnaryData,
     ServerUnaryCall,
+    ServerWritableStream,
     UntypedHandleCall,
 } from "@grpc/grpc-js";
 import {
@@ -77,7 +81,7 @@ export default function createVaultServer<T extends CommandServer>(commands: T):
                         .setMessage(opt.message)
                         .setStatus(RpcVaultStatus.OK));
                 });
-        };
+        }
 
         public deleteVault(call: ServerUnaryCall<VaultRequest, VaultActionResult>,
                            respond: sendUnaryData<VaultActionResult>): void
@@ -116,4 +120,91 @@ export default function createVaultServer<T extends CommandServer>(commands: T):
     }
 
     return new VaultServer();
+}
+
+export function createVaultNetworkServer<T extends CommandServer>(commands: T): IVaultNetworkServer {
+    function isValidPort(portNum: number | null = null): boolean {
+        return (portNum !== null) && (portNum < 65536) && (portNum >= 0);
+    }
+    
+    class VaultNetworkServer implements IVaultNetworkServer {
+        [name: string]: UntypedHandleCall;
+
+        linkVault(call: ServerUnaryCall<RemoteVaultLinkRequest, VaultActionResult>,
+                  respond: sendUnaryData<VaultActionResult>): void
+        {
+            const hostname = call.request.getLocation()?.getHost();
+            const portStr = call.request.getLocation()?.getPort();
+            const portNum = parseInt(portStr);
+            const vaultName = call.request.getVaultname();
+            
+            if (!hostname) {
+                respond(null, new VaultActionResult()
+                    .setStatus(RpcVaultStatus.NOTFOUND)
+                    .setMessage("No hostname was provided"));
+                return;
+            }
+            else if (!portStr) {
+                respond(null, new VaultActionResult()
+                    .setStatus(RpcVaultStatus.NOTFOUND)
+                    .setMessage("No port number was provided"));
+            }
+            else if (!isValidPort(portNum)) {
+                respond(null, new VaultActionResult()
+                    .setStatus(RpcVaultStatus.NOTFOUND)
+                    .setMessage("Invalid port number"));
+            }
+            else if (!vaultName) {
+                respond(null, new VaultActionResult()
+                    .setStatus(RpcVaultStatus.NOTFOUND)
+                    .setMessage("No vault name was provided"));
+                return;
+            }
+            
+            commands.onVaultLink(hostname, portNum, vaultName)
+                .then(connectionResult => {
+                    if (!connectionResult.success) {
+                        respond(null, new VaultActionResult()
+                            .setStatus(RpcVaultStatus.CONFLICT)
+                            .setMessage(connectionResult.message));
+                        return;
+                    }
+                    
+                    respond(null, new VaultActionResult()
+                        .setStatus(RpcVaultStatus.OK)
+                        .setMessage(connectionResult.message));
+                })
+                .catch(err => {
+                    respond(err);
+                });
+        }
+
+        resolveVault(call: ServerWritableStream<VaultRequest, RemoteVaultLinkRequest>): void {
+            const resolverTask = (async function() {
+                const vaultName = call.request.getName();
+                for await (let [hostDecl, peerDecl] of commands.services.activity.getAllDevices()) {
+                    const location = new RemoteVaultLinkRequest.VaultLocation()
+                        .setHost(hostDecl.hostname)
+                        .setPort(hostDecl.portNum.toString());
+                    const vaultEntries = peerDecl.vaults.filter(vault => vault.nickname === vaultName);
+                    for (let vault of vaultEntries) {
+                        const response = new RemoteVaultLinkRequest()
+                            .setVaultname(vaultName)
+                            .setLocation(location);
+                        call.write(response);
+                    }
+                }
+            })();
+            
+            resolverTask.then(() => call.end());
+        }
+
+        setNetworkStatus(call: ServerUnaryCall<VaultNetworkStatusRequest, VaultActionResult>,
+                         respond: sendUnaryData<VaultActionResult>): void
+        {
+            respond(null, new VaultActionResult());
+        }
+    }
+    
+    return new VaultNetworkServer();
 }
