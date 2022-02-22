@@ -38,7 +38,7 @@ namespace MunkeyCli.Contexts
         {
             try
             {
-                JsonNode? result = await FetchVaultContent(vaultName);
+                var result = await FetchVaultContent(vaultName);
                 if (result == null)
                 {
                     Console.WriteLine("Invalid JSON; aborting");
@@ -62,15 +62,16 @@ namespace MunkeyCli.Contexts
         {
             try
             {
-                JsonNode? result = await FetchVaultContent(_authentication, vaultName);
+                var result = await FetchVaultContent(_authentication, vaultName);
                 if (result == null)
                 {
                     Console.WriteLine("Invalid JSON; aborting");
                     return;
                 }
 
+                // Validate the contents of the vault
                 result[entry.Item1] = entry.Item2;
-                byte[] serializedData = _authentication.Encrypt(result.ToJsonString());
+                byte[] serializedData = _authentication.Encrypt(result.Export());
                 var response = await _client.SetContentAsync(new VaultCreationRequest
                 {
                     Name = vaultName,
@@ -87,12 +88,12 @@ namespace MunkeyCli.Contexts
             }
         }
 
-        private async Task<JsonNode?> FetchVaultContent(string vaultName)
+        private async Task<VaultContent> FetchVaultContent(string vaultName)
         {
             return await FetchVaultContent(_authentication, vaultName);
         }
 
-        private async Task<JsonNode?> FetchVaultContent(AuthenticationContext context, string vaultName)
+        private async Task<VaultContent> FetchVaultContent(AuthenticationContext context, string vaultName)
         {
             var response = await _client.GetContentAsync(new VaultRequest
             {
@@ -100,18 +101,15 @@ namespace MunkeyCli.Contexts
             });
             if (response.Status != VaultStatus.Ok)
             {
-                switch (response.Status)
+                throw response.Status switch
                 {
-                    case VaultStatus.NotFound:
-                        throw new InvalidOperationException($"Vault {vaultName} was not found");
-                    case VaultStatus.Conflict:
-                        throw new InvalidOperationException($"Vault {vaultName} encountered a conflict");
-                    default:
-                        throw new InvalidOperationException($"An unknown error occurred while trying to retrieve the contents of vault {vaultName}");
-                }
+                    VaultStatus.NotFound => new InvalidOperationException($"Vault {vaultName} was not found"),
+                    VaultStatus.Conflict => new InvalidOperationException($"Vault {vaultName} encountered a conflict"),
+                    _ => new InvalidOperationException($"An unknown error occurred while trying to retrieve the contents of vault {vaultName}"),
+                };
             }
             string decrypted = context.Decrypt(response.Data.ToByteArray());
-            return JsonNode.Parse(decrypted);
+            return VaultContent.Parse(decrypted);
         }
     }
 }
