@@ -4,13 +4,14 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace MunkeyCli
+namespace MunkeyCli.Contexts
 {
     public class AuthenticationContext
     {
         public static readonly int KEY_SIZE = 24;
         public static readonly int FILL_SIZE = 16;
         public static readonly int ITER_SIZE = 64_000;
+        public static readonly HashAlgorithmName HASH_ALGO = HashAlgorithmName.SHA512;
 
         private byte[] _key;
 
@@ -67,7 +68,11 @@ namespace MunkeyCli
 
         public string Decrypt(byte[] encryptedData)
         {
-            string decryptedData;
+            return Encoding.ASCII.GetString(DecryptBytes(encryptedData));
+        }
+
+        public byte[] DecryptBytes(byte[] encryptedData)
+        {
             // The first FILL_SIZE bytes are just the unencrypted fill data,
             // everything else is the encrypted portion.
             // Here, we split [fill,encrypted] into [fill] and [encrypted].
@@ -80,13 +85,13 @@ namespace MunkeyCli
             crypt.Mode = CipherMode.CBC;
 
             ICryptoTransform decrypt = crypt.CreateDecryptor(crypt.Key, crypt.IV);
-            using MemoryStream memoryStream = new(encryptedData);
-            using (CryptoStream cryptoStream = new(memoryStream, decrypt, CryptoStreamMode.Read)) {
-                using StreamReader reader = new(cryptoStream);
-                decryptedData = reader.ReadToEnd();
+            using MemoryStream memoryStream = new();
+            using (CryptoStream cryptoStream = new(memoryStream, decrypt, CryptoStreamMode.Write))
+            {
+                cryptoStream.Write(encryptedData, 0, encryptedData.Length);
             }
-            
-            return decryptedData;
+            byte[] data = memoryStream.ToArray();
+            return data;
         }
 
         private static byte[] GenerateFill()
@@ -100,6 +105,11 @@ namespace MunkeyCli
             byte[] salt = Encoding.ASCII.GetBytes("munkey-salt");
             byte[] rawPassword = Encoding.ASCII.GetBytes(password);
             return Rfc2898DeriveBytes.Pbkdf2(rawPassword, salt, ITER_SIZE, HashAlgorithmName.SHA256, KEY_SIZE);
+        }
+
+        public static AuthenticationContext Create(string password)
+        {
+            return new AuthenticationContext(GenerateKey(password));
         }
     }
 }
