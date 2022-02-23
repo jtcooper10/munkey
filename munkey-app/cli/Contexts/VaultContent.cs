@@ -108,4 +108,59 @@ namespace MunkeyCli.Contexts
             return this;
         }
     }
+
+    public struct VaultDataset
+    {
+        public enum SignatureAlgorithm : int
+        {
+            SHA512 = 0,
+        }
+
+        public int ProtocolVersion { get; private set; }
+        public SignatureAlgorithm Algorithm { get; private set; }
+        public byte[] Signature { get; private set; }
+        public byte[] Payload { get; private set; }
+
+        public VaultDataset(byte[] signature, byte[] payload)
+        {
+            Signature = signature;
+            Payload = payload;
+            ProtocolVersion = 0;
+            Algorithm = SignatureAlgorithm.SHA512;
+        }
+
+        public byte[] Serialize()
+        {
+            using MemoryStream stream = new();
+            using BinaryWriter writer = new(stream);
+
+            writer.Write(ProtocolVersion);
+            writer.Write((int)Algorithm);
+            writer.Write(Signature.Length);
+            writer.Write(Payload.Length);
+            writer.Write(Signature);
+            writer.Write(Payload);
+
+            return stream.ToArray();
+        }
+
+        public static VaultDataset Deserialize(byte[] serializedData)
+        {
+            using MemoryStream stream = new(serializedData);
+            using BinaryReader reader = new(stream);
+
+            int version = reader.ReadInt32();
+            int algorithm = reader.ReadInt32(); // ignored for now
+            int signatureSize = reader.ReadInt32();
+            int payloadSize = reader.ReadInt32();
+
+            return new VaultDataset
+            {
+                ProtocolVersion = version,
+                Algorithm = SignatureAlgorithm.SHA512,
+                Signature = reader.ReadBytes(signatureSize),
+                Payload = reader.ReadBytes(payloadSize),
+            };
+        }
+    }
 }

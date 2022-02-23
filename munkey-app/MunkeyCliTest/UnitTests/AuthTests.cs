@@ -144,7 +144,7 @@ namespace MunkeyCliTest
         {
             byte[] wrapped = _context.Wrap(_randomData);
             Assert.IsNotNull(wrapped);
-            wrapped[0] += 1;
+            wrapped[16] += 1; // first 16 bytes are metadata, modifying these will not fail validation
             Assert.ThrowsException<CryptographicException>(() => _context.Unwrap(wrapped));
         }
 

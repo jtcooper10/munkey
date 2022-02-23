@@ -38,44 +38,17 @@ namespace MunkeyCli.Contexts
 
         public byte[] Wrap(byte[] payload)
         {
-            using MemoryStream document = new();
-            using BinaryWriter binary = new(document);
-            byte[] signature;
-
-            signature = Sign(payload);
-            binary.Write(payload.Length);
-            binary.Write(signature.Length);
-            binary.Write(0); // TODO: configure hash algo enum
-            binary.Write(signature);
-            binary.Write(payload);
-
-            return document.ToArray();
+            return new VaultDataset(Sign(payload), payload).Serialize();
         }
 
         public byte[] Unwrap(byte[] document)
         {
-            var (signature, payload) = ParseUnwrap(document);
+            var data = VaultDataset.Deserialize(document);
 
-            if (!Validate(payload, signature))
-                throw new CryptographicException("Signature could not be validated");
+            if (!Validate(data.Payload, data.Signature))
+                throw new CryptographicException("Database signature is invalid");
 
-            return payload;
-        }
-
-        private static (byte[], byte[]) ParseUnwrap(byte[] document)
-        {
-            using MemoryStream stream = new(document);
-            using BinaryReader binary = new(stream);
-            byte[] signature, payload;
-            int algoEnum;
-
-            payload = new byte[binary.ReadInt32()];
-            signature = new byte[binary.ReadInt32()];
-            algoEnum = binary.ReadInt32();
-            binary.Read(signature, 0, signature.Length);
-            binary.Read(payload, 0, payload.Length);
-
-            return (signature, payload);
+            return data.Payload;
         }
 
         public byte[] Sign(byte[] data)
