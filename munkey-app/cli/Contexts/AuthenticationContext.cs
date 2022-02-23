@@ -50,48 +50,55 @@ namespace MunkeyCli.Contexts
 
         public byte[] Encrypt(byte[] plaintextData)
         {
+            IVaultPayload payload;
+            
+            using (var crypt = Aes.Create())
+            {
+                crypt.Key = _key;
+                crypt.IV = GenerateFill();
+                crypt.Mode = CipherMode.CBC;
+                ICryptoTransform encrypt = crypt.CreateEncryptor();
+
+                using MemoryStream memoryStream = new();
+                // `using` declaration doesn't work for `CryptoStream` for some reason; must use `using` block instead!
+                // https://stackoverflow.com/questions/61761053/converting-a-cryptostream-to-using-declaration-makes-memory-stream-empty-when-te
+                using (CryptoStream cryptoStream = new(memoryStream, encrypt, CryptoStreamMode.Write))
+                {
+                    cryptoStream.Write(plaintextData);
+                }
+                payload = new RawVaultPayload
+                {
+                    Seed = crypt.IV,
+                    Vault = memoryStream.ToArray(),
+                };
+            }
+
+            return payload.Serialize();
+        }
+
+        public byte[] DecryptBytes(byte[] ciphertext)
+        {
+            IVaultPayload payload = new RawVaultPayload()
+                .Deserialize(ciphertext);
+
             using var crypt = Aes.Create();
             crypt.Key = _key;
-            crypt.IV = GenerateFill();
+            crypt.IV = payload.Seed;
             crypt.Mode = CipherMode.CBC;
 
-            ICryptoTransform encrypt = crypt.CreateEncryptor(crypt.Key, crypt.IV);
-            // `using` declaration doesn't work for `CryptoStream` for some reason; must use `using` block instead!
-            // https://stackoverflow.com/questions/61761053/converting-a-cryptostream-to-using-declaration-makes-memory-stream-empty-when-te
-            using MemoryStream memoryStream = new();
-            memoryStream.Write(crypt.IV, 0, FILL_SIZE);
-            using (CryptoStream cryptoStream = new(memoryStream, encrypt, CryptoStreamMode.Write)) {
-                cryptoStream.Write(plaintextData);
+            ICryptoTransform decrypt = crypt.CreateDecryptor();
+            using MemoryStream stream = new();
+            using (CryptoStream crypto = new(stream, decrypt, CryptoStreamMode.Write))
+            {
+                crypto.Write(payload.Vault);
             }
-            return memoryStream.ToArray();
+            
+            return stream.ToArray();
         }
 
         public string Decrypt(byte[] encryptedData)
         {
             return Encoding.ASCII.GetString(DecryptBytes(encryptedData));
-        }
-
-        public byte[] DecryptBytes(byte[] encryptedData)
-        {
-            // The first FILL_SIZE bytes are just the unencrypted fill data,
-            // everything else is the encrypted portion.
-            // Here, we split [fill,encrypted] into [fill] and [encrypted].
-            byte[] fillData = encryptedData.Take(FILL_SIZE).ToArray();
-            encryptedData = encryptedData.Skip(FILL_SIZE).ToArray();
-
-            using var crypt = Aes.Create();
-            crypt.Key = _key;
-            crypt.IV = fillData;
-            crypt.Mode = CipherMode.CBC;
-
-            ICryptoTransform decrypt = crypt.CreateDecryptor(crypt.Key, crypt.IV);
-            using MemoryStream memoryStream = new();
-            using (CryptoStream cryptoStream = new(memoryStream, decrypt, CryptoStreamMode.Write))
-            {
-                cryptoStream.Write(encryptedData, 0, encryptedData.Length);
-            }
-            byte[] data = memoryStream.ToArray();
-            return data;
         }
 
         private static byte[] GenerateFill()

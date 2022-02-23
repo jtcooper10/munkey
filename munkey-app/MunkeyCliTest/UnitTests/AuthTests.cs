@@ -145,7 +145,7 @@ namespace MunkeyCliTest
             byte[] wrapped = _context.Wrap(_randomData);
             Assert.IsNotNull(wrapped);
             wrapped[0] += 1;
-            Assert.ThrowsException<System.Exception>(() => _context.Unwrap(wrapped));
+            Assert.ThrowsException<CryptographicException>(() => _context.Unwrap(wrapped));
         }
 
         [TestInitialize]
