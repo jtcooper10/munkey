@@ -13,6 +13,7 @@ namespace MunkeyCliTest
     public class AuthenticationTest
     {
         private readonly string _plaintextMessage;
+        private readonly byte[] _fakeKey;
 
         [DataTestMethod]
         [Description("Keys generated with a valid password can encrypt/decrypt successfully")]
@@ -20,10 +21,10 @@ namespace MunkeyCliTest
         public void TestKeyWithValidPassword(string password)
         {
             var context = MakeContext(password);
-            byte[] encryptedMessage = context.Encrypt(_plaintextMessage);
+            byte[] encryptedMessage = context.Encrypt(_plaintextMessage, _fakeKey);
 
             Assert.AreNotEqual(Encoding.ASCII.GetBytes(_plaintextMessage), encryptedMessage);
-            Assert.AreEqual(context.Decrypt(encryptedMessage), _plaintextMessage);
+            Assert.AreEqual(context.Decrypt(encryptedMessage, out _), _plaintextMessage);
         }
 
         [DataTestMethod]
@@ -31,7 +32,7 @@ namespace MunkeyCliTest
         [DataRow("valid_password123")]
         public void TestEncryptedContexts(string password)
         {
-            byte[] encryptedMessage = MakeContext(password).Encrypt(_plaintextMessage);
+            byte[] encryptedMessage = MakeContext(password).Encrypt(_plaintextMessage, _fakeKey);
 
             try
             {
@@ -49,9 +50,9 @@ namespace MunkeyCliTest
         public void TestBadDecryptionError()
         {
             string password1 = "password1", password2 = "password2";
-            byte[] encryptedMessage = MakeContext(password1).Encrypt(_plaintextMessage);
+            byte[] encryptedMessage = MakeContext(password1).Encrypt(_plaintextMessage, _fakeKey);
 
-            Assert.ThrowsException<CryptographicException>(() => MakeContext(password2).Decrypt(encryptedMessage));
+            Assert.ThrowsException<CryptographicException>(() => MakeContext(password2).Decrypt(encryptedMessage, out _));
         }
 
         private AuthenticationContext MakeContext(string password)
@@ -63,6 +64,7 @@ namespace MunkeyCliTest
         public AuthenticationTest()
         {
             _plaintextMessage = "{\"hello\": \"world\"}";
+            _fakeKey = RandomNumberGenerator.GetBytes(32);
         }
     }
 

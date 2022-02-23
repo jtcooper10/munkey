@@ -43,12 +43,12 @@ namespace MunkeyCli.Contexts
             return builder.ToString();
         }
 
-        public byte[] Encrypt(string plaintextString)
+        public byte[] Encrypt(string plaintextString, byte[] privateKey)
         {
-            return Encrypt(Encoding.ASCII.GetBytes(plaintextString));
+            return Encrypt(Encoding.ASCII.GetBytes(plaintextString), privateKey);
         }
 
-        public byte[] Encrypt(byte[] plaintextData)
+        public byte[] Encrypt(byte[] plaintextData, byte[] privateKey)
         {
             IVaultPayload payload;
             
@@ -60,10 +60,17 @@ namespace MunkeyCli.Contexts
                 ICryptoTransform encrypt = crypt.CreateEncryptor();
 
                 using MemoryStream memoryStream = new();
+
                 // `using` declaration doesn't work for `CryptoStream` for some reason; must use `using` block instead!
                 // https://stackoverflow.com/questions/61761053/converting-a-cryptostream-to-using-declaration-makes-memory-stream-empty-when-te
                 using (CryptoStream cryptoStream = new(memoryStream, encrypt, CryptoStreamMode.Write))
+                using (BinaryWriter writer = new(cryptoStream))
                 {
+                    // Temporary handler: the private key is wrapped and included as part of the payload.
+                    writer.Write(privateKey.Length);
+                    writer.Write(privateKey);
+                    writer.Write(plaintextData.Length);
+
                     cryptoStream.Write(plaintextData);
                 }
                 payload = new RawVaultPayload
@@ -76,7 +83,7 @@ namespace MunkeyCli.Contexts
             return payload.Serialize();
         }
 
-        public byte[] DecryptBytes(byte[] ciphertext)
+        public byte[] DecryptBytes(byte[] ciphertext, out byte[] privateKey)
         {
             IVaultPayload payload = new RawVaultPayload()
                 .Deserialize(ciphertext);
@@ -91,14 +98,19 @@ namespace MunkeyCli.Contexts
             using (CryptoStream crypto = new(stream, decrypt, CryptoStreamMode.Write))
             {
                 crypto.Write(payload.Vault);
+                crypto.Flush();
+                crypto.FlushFinalBlock();
+
+                stream.Position = 0;
+                using BinaryReader binary = new(stream);
+                privateKey = binary.ReadBytes(binary.ReadInt32());
+                return binary.ReadBytes(binary.ReadInt32());
             }
-            
-            return stream.ToArray();
         }
 
-        public string Decrypt(byte[] encryptedData)
+        public string Decrypt(byte[] encryptedData, out byte[] privateKey)
         {
-            return Encoding.ASCII.GetString(DecryptBytes(encryptedData));
+            return Encoding.ASCII.GetString(DecryptBytes(encryptedData, out privateKey));
         }
 
         private static byte[] GenerateFill()

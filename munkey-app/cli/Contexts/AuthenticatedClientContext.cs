@@ -71,7 +71,7 @@ namespace MunkeyCli.Contexts
 
                 // Validate the contents of the vault
                 result[entry.Item1] = entry.Item2;
-                byte[] serializedData = _authentication.Encrypt(result.Export());
+                byte[] serializedData = _authentication.Encrypt(result.Export(), Array.Empty<byte>());
                 var response = await _client.SetContentAsync(new VaultCreationRequest
                 {
                     Name = vaultName,
@@ -108,7 +108,7 @@ namespace MunkeyCli.Contexts
                     _ => new InvalidOperationException($"An unknown error occurred while trying to retrieve the contents of vault {vaultName}"),
                 };
             }
-            string decrypted = context.Decrypt(response.Data.ToByteArray());
+            string decrypted = context.Decrypt(response.Data.ToByteArray(), out _);
             return VaultContent.Parse(decrypted);
         }
     }
