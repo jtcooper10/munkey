@@ -129,6 +129,25 @@ namespace MunkeyCliTest
             Assert.IsFalse(_context.Validate(_randomData, signature));
         }
 
+        [TestMethod]
+        [Description("Wrapping a payload and unwrapping it generates the original payload and passed validation")]
+        public void TestAcceptsWrappedPayload()
+        {
+            byte[] wrapped = _context.Wrap(_randomData);
+            Assert.IsNotNull(wrapped);
+            CollectionAssert.AreEqual(_randomData, _context.Unwrap(wrapped));
+        }
+
+        [TestMethod]
+        [Description("Modifying a wrapped payload does not pass validation")]
+        public void TestRejectsModifiedWrappedPayload()
+        {
+            byte[] wrapped = _context.Wrap(_randomData);
+            Assert.IsNotNull(wrapped);
+            wrapped[0] += 1;
+            Assert.ThrowsException<System.Exception>(() => _context.Unwrap(wrapped));
+        }
+
         [TestInitialize]
         public void BeforeEach()
         {
