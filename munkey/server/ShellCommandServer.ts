@@ -60,8 +60,9 @@ class ShellCommandServer extends CommandServer {
         return Promise.resolve(stream => this
             .promptPasswordCreation(stream)
             .then(async cipher => {
+                // TODO: modify public key when key validation is implemented
                 const initialData: Buffer = await cipher.encrypt(Buffer.from(JSON.stringify({})));
-                const vaultResult = await this.onCreateVault(vaultName, initialData);
+                const vaultResult = await this.onCreateVault(vaultName, "empty-key", initialData);
 
                 if (vaultResult.success) {
                     const vaultId = vaultResult.unpack("[unknown]");

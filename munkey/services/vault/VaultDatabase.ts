@@ -4,14 +4,16 @@ import { VaultDB } from "../baseService";
 
 export default class VaultDatabase {
     public readonly vault: VaultDB;
+    public readonly vaultId: string;
     private readonly logger?: winston.Logger;
 
-    constructor(vault: VaultDB, logger?: winston.Logger) {
+    constructor(vault: VaultDB, vaultId: string, logger?: winston.Logger) {
         this.vault = vault;
+        this.vaultId = vaultId;
         this.logger = logger;
     }
 
-    public static async create(vault: VaultDB, initialData: Buffer, logger?: winston.Logger): Promise<VaultDatabase> {
+    public static async create(vault: VaultDB, vaultId: string, initialData: Buffer, logger?: winston.Logger): Promise<VaultDatabase> {
         await vault.getAttachment("vault", "passwords.json")
             .then(() => {
                 logger?.info("Database loaded successfully: %s", vault.name);
@@ -24,7 +26,7 @@ export default class VaultDatabase {
                 return null;
             });
 
-        return new VaultDatabase(vault, logger);
+        return new VaultDatabase(vault, vaultId, logger);
     }
 
     public destroy(): Promise<void> {

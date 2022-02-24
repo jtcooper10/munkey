@@ -23,12 +23,13 @@ namespace MunkeyCli.Contexts
             this._authentication = authentication;
         }
 
-        public async Task CreateVault(string vaultName, byte[] initialData)
-        {
+        public async Task CreateVault(string vaultName, byte[] initialData, byte[] publicKey)
+        { 
             var response = await _client.CreateVaultAsync(new VaultCreationRequest
             {
                 Name = vaultName,
                 InitialData = ByteString.CopyFrom(initialData),
+                PublicKey = ByteString.CopyFrom(publicKey),
             });
             Console.WriteLine(response.Message);
         }
@@ -37,7 +38,7 @@ namespace MunkeyCli.Contexts
         {
             try
             {
-                var (result, privateKey) = await FetchVaultContent(vaultName);
+                var (result, _) = await FetchVaultContent(vaultName);
                 if (result == null)
                 {
                     Console.WriteLine("Invalid JSON; aborting");
@@ -71,6 +72,12 @@ namespace MunkeyCli.Contexts
                 // Validate the contents of the vault
                 result[entry.Item1] = entry.Item2;
                 byte[] serializedData = _authentication.Encrypt(result.Export(), privateKey);
+
+                using (var validation = ValidationContext.FromKey(privateKey))
+                {
+                    serializedData = validation.Wrap(serializedData);
+                }
+
                 var response = await _client.SetContentAsync(new VaultCreationRequest
                 {
                     Name = vaultName,

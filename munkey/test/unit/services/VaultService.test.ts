@@ -12,13 +12,14 @@ chai.use(ChaiAsPromised);
 describe("Test vault database wrapper", function() {
 
     let sandbox: sinon.SinonSandbox;
+    let fakeKey: string = "empty-key";
 
     it("should retrieve the password database if it exists", async function() {
         let buffer: Buffer = Buffer.from('{"hello":"world"}');
         let getAttachment: sinon.SinonStub<any> = sandbox.stub().resolves(buffer);
         let db = sandbox.createStubInstance<VaultDB>(PouchDB, { getAttachment });
 
-        const vault = new VaultDatabase(db);
+        const vault = new VaultDatabase(db, fakeKey);
         const result = await vault.getContent();
 
         expect(result).to.be.instanceof(Buffer, "Result was expected to be a Buffer instance");
@@ -29,7 +30,7 @@ describe("Test vault database wrapper", function() {
         let getAttachment: sinon.SinonStub<any> = sandbox.stub().rejects("Error");
         let db = sandbox.createStubInstance<VaultDB>(PouchDB, { getAttachment });
 
-        const vault = new VaultDatabase(db);
+        const vault = new VaultDatabase(db, fakeKey);
         const result = await vault.getContent();
 
         expect(result).to.be.null;
@@ -42,7 +43,7 @@ describe("Test vault database wrapper", function() {
         let putAttachment: sinon.SinonStub<any> = sandbox.stub().resolves({ ok: { valueOf: () => true, }});
         let db = sandbox.createStubInstance<VaultDB>(PouchDB, { get, putAttachment });
 
-        const vault = new VaultDatabase(db);
+        const vault = new VaultDatabase(db, fakeKey);
         const result = await vault.setContent(buffer);
 
         expect(result, "setContent() returned false, indicating failure").to.be.true;
@@ -56,7 +57,7 @@ describe("Test vault database wrapper", function() {
         let putAttachment: sinon.SinonStub<any> = sandbox.stub().resolves({ ok: { valueOf: () => true, }});
         let db = sandbox.createStubInstance<VaultDB>(PouchDB, { get, putAttachment });
 
-        const vault = new VaultDatabase(db);
+        const vault = new VaultDatabase(db, fakeKey);
         const result = await vault.setContent(buffer);
 
         expect(result, "setContent() returned false, indicating failure").to.be.true;
@@ -69,7 +70,7 @@ describe("Test vault database wrapper", function() {
         let putAttachment: sinon.SinonStub<any> = sandbox.stub().resolves({ ok: { valueOf: () => true, }});
         let db = sandbox.createStubInstance<VaultDB>(PouchDB, { get, putAttachment });
 
-        const vault = new VaultDatabase(db);
+        const vault = new VaultDatabase(db, fakeKey);
         const result = await vault.setContent(buffer);
 
         expect(result, "setContent() returned true, indicating success when expected failure").to.be.false;

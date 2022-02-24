@@ -32,7 +32,7 @@ abstract class CommandServer {
 
     }
 
-    async onCreateVault(vaultName: string, initialData: Buffer): Promise<VaultOption<string>> {
+    async onCreateVault(vaultName: string, vaultId: string, initialData: Buffer): Promise<VaultOption<string>> {
         if (this.services.vault.getVaultByName(vaultName)) {
             return failItem<string, VaultStatus>({
                 status: VaultStatus.CONFLICT,
@@ -41,7 +41,6 @@ abstract class CommandServer {
         }
 
         try {
-            const vaultId = randomUUID();
             const vaultResult = this.services.vault.createVault(vaultName, vaultId, initialData);
             if (!vaultResult.success) {
                 return failItem({ message: vaultResult.message });
@@ -99,7 +98,7 @@ abstract class CommandServer {
         }
     }
 
-    async onGetContent(vaultName: string): Promise<VaultOption<Buffer>> {
+    async onGetContent(vaultName: string): Promise<VaultOption<[Buffer, string]>> {
         let vault = this.services.vault.getVaultByName(vaultName);
         if (!vault) {
             return failItem({
@@ -109,13 +108,13 @@ abstract class CommandServer {
 
         let content = await vault.getContent() ?? null;
         if (content === null) {
-            return failItem<Buffer, VaultStatus>({
+            return failItem<[Buffer, string], VaultStatus>({
                 status: Status.FAILURE,
                 message: `Vault ${vaultName} has no content`,
             });
         }
 
-        return successItem(content, { message: "Vault contents retrieved successfully" });
+        return successItem([content, vault.vaultId], { message: "Vault contents retrieved successfully" });
     }
 
     async onSetContent(vaultName: string, content: Buffer): Promise<VaultResult> {

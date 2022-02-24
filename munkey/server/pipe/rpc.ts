@@ -46,7 +46,7 @@ export default function createVaultServer<T extends CommandServer>(commands: T):
     }
     
     function mapVaultData(response: VaultData,
-                          content: VaultOption<Buffer>,
+                          content: VaultOption<[Buffer, string]>,
                           respond: sendUnaryData<VaultData>)
     {
         response.setStatus(RpcVaultStatus.OK);
@@ -55,7 +55,9 @@ export default function createVaultServer<T extends CommandServer>(commands: T):
                 response.setStatus(RpcVaultStatus.NOTFOUND);
                 break;
             case Status.SUCCESS:
-                response.setStatus(RpcVaultStatus.OK).setData(content.data);
+                response
+                    .setStatus(RpcVaultStatus.OK)
+                    .setData(content.data[0]);
                 break;
             default:
                 return respond(new Error(content.message));
@@ -71,7 +73,10 @@ export default function createVaultServer<T extends CommandServer>(commands: T):
                            respond: sendUnaryData<VaultActionResult>): void
         {
             commands
-                .onCreateVault(call.request.getName(), Buffer.from(call.request.getInitialdata()))
+                .onCreateVault(
+                    call.request.getName(),
+                    Buffer.from(call.request.getPublickey()).toString("base64url"),
+                    Buffer.from(call.request.getInitialdata()))
                 .then(opt => {
                     if (!opt.success) {
                         return respond(new Error(opt.message));
@@ -94,7 +99,10 @@ export default function createVaultServer<T extends CommandServer>(commands: T):
                           respond: sendUnaryData<VaultData>): void {
             const entry = new VaultEntry().setName(call.request.getName());
             commands.onGetContent(call.request.getName())
-                .then(content => mapVaultData(new VaultData().setEntry(entry), content, respond));
+                .then(content => {
+                    const publicKey: Buffer = Buffer.from(content.data[1], "base64url");
+                    return mapVaultData(new VaultData().setEntry(entry.setPublickey(publicKey)), content, respond);
+                });
         }
 
         public async listVaults(call: ServerUnaryCall<VaultCollectionRequest, VaultCollection>,

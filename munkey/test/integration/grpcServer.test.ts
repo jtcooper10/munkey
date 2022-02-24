@@ -29,7 +29,7 @@ describe("Test gRPC vault server implementations", function() {
     it("calls .onGetContent() correctly when issued a valid GetContent() command", async function() {
         let onGetContent = sandbox
             .stub(commands, "onGetContent")
-            .resolves(successItem(Buffer.from("lol")));
+            .resolves(successItem([Buffer.from("lol"), "empty-key"]));
         let request = new VaultRequest()
             .setName("lol");
 
