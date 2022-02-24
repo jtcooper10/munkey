@@ -24,7 +24,9 @@ namespace MunkeyCli.Commands
             AuthenticationContext context = AuthenticationContext.PromptPassword();
             try
             {
-                byte[] initialData = context.Encrypt(INITIAL_DATA, INITIAL_DATA);
+                using ValidationContext validation = ValidationContext.Create();
+                byte[] initialData = context.Encrypt(INITIAL_DATA, validation.ExportPrivateKey());
+                initialData = validation.Wrap(initialData);
                 await _context.Authenticate(context).CreateVault(name, initialData);
             }
             catch (CryptographicException ex)

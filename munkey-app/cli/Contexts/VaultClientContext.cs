@@ -39,7 +39,7 @@ namespace MunkeyCli.Contexts
 
         public AuthenticatedClientContext Authenticate(AuthenticationContext context)
         {
-            return new AuthenticatedClientContext(_client, _network, context);
+            return new AuthenticatedClientContext(_client, context);
         }
 
         public async IAsyncEnumerable<(string, string)> VaultList()

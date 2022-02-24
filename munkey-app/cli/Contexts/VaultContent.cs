@@ -18,9 +18,9 @@ namespace MunkeyCli.Contexts
             _certificate = certificate;
         }
 
-        public static VaultContent Parse(string source)
+        public static VaultContent Parse(string source, byte[] signature)
         {
-            return new VaultContent(JsonNode.Parse(source), Array.Empty<byte>());
+            return new VaultContent(JsonNode.Parse(source), signature);
         }
 
         public string this[string i]

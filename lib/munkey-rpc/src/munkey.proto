@@ -12,6 +12,7 @@ enum VaultStatus {
 message VaultCreationRequest {
     string name = 1;
     bytes initialData = 2;
+    bytes publicKey = 3;
 }
 
 message VaultRequest {
@@ -21,6 +22,7 @@ message VaultRequest {
 message VaultEntry {
     string name = 1;
     string id = 2;
+    bytes publicKey = 3;
 }
 
 message VaultData {

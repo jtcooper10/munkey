@@ -6,22 +6,20 @@ using System.Threading.Tasks;
 using Google.Protobuf;
 using MunkeyRpcClient;
 using System.Text.Json.Nodes;
+using System.Security.Cryptography;
 
 namespace MunkeyCli.Contexts
 {
     public class AuthenticatedClientContext
     {
         private readonly Vault.VaultClient _client;
-        private readonly VaultNetwork.VaultNetworkClient _network;
         private readonly AuthenticationContext _authentication;
 
         public AuthenticatedClientContext(
             Vault.VaultClient client,
-            VaultNetwork.VaultNetworkClient networkClient,
             AuthenticationContext authentication)
         {
             this._client = client;
-            this._network = networkClient;
             this._authentication = authentication;
         }
 
@@ -34,11 +32,12 @@ namespace MunkeyCli.Contexts
             });
             Console.WriteLine(response.Message);
         }
+
         public async Task GetVaultEntry(string vaultName, string entryKey)
         {
             try
             {
-                var result = await FetchVaultContent(vaultName);
+                var (result, privateKey) = await FetchVaultContent(vaultName);
                 if (result == null)
                 {
                     Console.WriteLine("Invalid JSON; aborting");
@@ -62,7 +61,7 @@ namespace MunkeyCli.Contexts
         {
             try
             {
-                var result = await FetchVaultContent(_authentication, vaultName);
+                var (result, privateKey) = await FetchVaultContent(_authentication, vaultName);
                 if (result == null)
                 {
                     Console.WriteLine("Invalid JSON; aborting");
@@ -71,7 +70,7 @@ namespace MunkeyCli.Contexts
 
                 // Validate the contents of the vault
                 result[entry.Item1] = entry.Item2;
-                byte[] serializedData = _authentication.Encrypt(result.Export(), Array.Empty<byte>());
+                byte[] serializedData = _authentication.Encrypt(result.Export(), privateKey);
                 var response = await _client.SetContentAsync(new VaultCreationRequest
                 {
                     Name = vaultName,
@@ -88,12 +87,12 @@ namespace MunkeyCli.Contexts
             }
         }
 
-        private async Task<VaultContent> FetchVaultContent(string vaultName)
+        private async Task<(VaultContent, byte[])> FetchVaultContent(string vaultName)
         {
             return await FetchVaultContent(_authentication, vaultName);
         }
 
-        private async Task<VaultContent> FetchVaultContent(AuthenticationContext context, string vaultName)
+        private async Task<(VaultContent, byte[])> FetchVaultContent(AuthenticationContext context, string vaultName)
         {
             var response = await _client.GetContentAsync(new VaultRequest
             {
@@ -108,8 +107,16 @@ namespace MunkeyCli.Contexts
                     _ => new InvalidOperationException($"An unknown error occurred while trying to retrieve the contents of vault {vaultName}"),
                 };
             }
-            string decrypted = context.Decrypt(response.Data.ToByteArray(), out _);
-            return VaultContent.Parse(decrypted);
+
+            var dataset = VaultDataset.Deserialize(response.Data.ToByteArray());
+            using (var validation = ValidationContext.FromPublicKey(response.Entry.PublicKey.ToByteArray()))
+            {
+                if (!validation.Validate(dataset.Payload, dataset.Signature))
+                    throw new CryptographicException("Database certificate is invalid");
+            }
+
+            string decrypted = context.Decrypt(dataset.Payload, out var privateKey);
+            return (VaultContent.Parse(decrypted, dataset.Signature), privateKey);
         }
     }
 }
