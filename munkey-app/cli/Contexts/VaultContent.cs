@@ -100,8 +100,8 @@ namespace MunkeyCli.Contexts
 
             int type = reader.ReadInt32();
             int algo = reader.ReadInt32();
-            Seed = reader.ReadBytes(reader.ReadInt32());
-            Vault = reader.ReadBytes(reader.ReadInt32());
+            Seed = new byte[reader.ReadInt32()];
+            Vault = new byte[reader.ReadInt32()];
             reader.Read(Seed);
             reader.Read(Vault);
 
