@@ -15,7 +15,7 @@ import {
     VaultStatus
 } from "../services";
 import { fail, failItem, Option, Result, Status, success, successItem } from "../error";
-import { randomUUID } from "crypto";
+import { deserialize } from "../encryption/serialize";
 
 
 /**
@@ -38,6 +38,13 @@ abstract class CommandServer {
                 status: VaultStatus.CONFLICT,
                 message: `Cannot create vault with name ${vaultName}, already exists`,
             });
+        }
+
+        // Use the public key (vault ID, currently) to valildate the payload contents.
+        const dataset = deserialize(initialData);
+        const publicKey = `-----BEGIN PUBLIC KEY-----\n${Buffer.from(vaultId, "base64url").toString("base64")}\n-----END PUBLIC KEY-----\n`;
+        if (!dataset.validate(Buffer.from(publicKey, "utf8"))) {
+            return failItem({ message: "Failed to validate payload signature" });
         }
 
         try {

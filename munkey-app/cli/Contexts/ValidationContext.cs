@@ -53,17 +53,24 @@ namespace MunkeyCli.Contexts
 
         public byte[] Sign(byte[] data)
         {
-            return _dsa.SignData(data, HASH_ALGO);
+            return _dsa.SignHash(Hash(data), DSASignatureFormat.Rfc3279DerSequence);
+        }
+
+        public static byte[] Hash(byte[] data)
+        {
+            using SHA512 hmac = SHA512.Create();
+            return hmac.ComputeHash(data);
         }
 
         public bool Validate(byte[] data, byte[] signature)
         {
-            return _dsa.VerifyData(data, signature, HASH_ALGO);
+            return _dsa.VerifyHash(Hash(data), signature, DSASignatureFormat.Rfc3279DerSequence);
         }
 
         public byte[] ExportPublicKey()
         {
-            return _dsa.ExportSubjectPublicKeyInfo();
+            var spki = _dsa.ExportSubjectPublicKeyInfo();
+            return spki;
         }
 
         public byte[] ExportPrivateKey()
