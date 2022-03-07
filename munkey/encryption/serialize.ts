@@ -11,7 +11,7 @@ interface IVaultDataset {
     signature: Buffer;
     payload: Buffer;
 
-    validate(publicKey: Buffer): boolean;
+    validate(vaultId: string): boolean;
     unwrap(): VaultPayload;
 }
 
@@ -44,10 +44,12 @@ class VaultDatasetV0 implements IVaultDataset {
         return new VaultDatasetV0(Buffer.from(signature), Buffer.from(payload), signatureAlgorithm);
     }
 
-    public validate(publicKey: Buffer): boolean {
+    public validate(vaultId: string): boolean {
+        let publicKey = `-----BEGIN PUBLIC KEY-----\n${Buffer.from(vaultId, "base64url").toString("base64")}\n-----END PUBLIC KEY-----\n`;
+        
         try {
             const key = createPublicKey({
-                key: publicKey,
+                key: Buffer.from(publicKey, "utf-8"),
                 type: "spki",
             });
             return createVerify(VaultSignatureAlgorithm[this.signatureAlgorithm])

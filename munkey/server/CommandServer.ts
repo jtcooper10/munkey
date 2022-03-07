@@ -42,8 +42,7 @@ abstract class CommandServer {
 
         // Use the public key (vault ID, currently) to valildate the payload contents.
         const dataset = deserialize(initialData);
-        const publicKey = `-----BEGIN PUBLIC KEY-----\n${Buffer.from(vaultId, "base64url").toString("base64")}\n-----END PUBLIC KEY-----\n`;
-        if (!dataset.validate(Buffer.from(publicKey, "utf8"))) {
+        if (!dataset.validate(vaultId)) {
             return failItem({ message: "Failed to validate payload signature" });
         }
 
@@ -131,6 +130,11 @@ abstract class CommandServer {
                 status: VaultStatus.NOT_FOUND,
                 message: `No vault found with name ${vaultName}`,
             });
+        }
+
+        let dataset = deserialize(content);
+        if (!dataset.validate(vault.vaultId)) {
+            return fail({ message: "Vault signature is invalid" });
         }
 
         const result = await vault.setContent(content);

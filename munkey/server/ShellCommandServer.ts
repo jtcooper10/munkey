@@ -132,18 +132,24 @@ class ShellCommandServer extends CommandServer {
         }
 
         let content: { [key: string]: any } | null = await vault.getContent()
-            .then(async content => {
-                if (!content)
+            .then(async rawContent => {
+                if (!rawContent)
                     return {};
 
-                content = await this.activeVault?.cipher.decrypt(content);
-                if (!content) {
+                let content = deserialize(rawContent);
+                if (!content.validate(vault.vaultId)) {
+                    console.error("Vault signature is invalid!");
+                    return null;
+                }
+
+                let decryptedContent = await this.activeVault?.cipher._decrypt(content.unwrap());
+                if (!decryptedContent) {
                     console.error("Bad password! Use the command 'vault login' to try a different password.");
                     return null;
                 }
 
                 try {
-                    return JSON.parse(content.toString());
+                    return JSON.parse(decryptedContent.toString());
                 }
                 catch {
                     console.error("Database contents are corrupt!");
@@ -193,6 +199,11 @@ class ShellCommandServer extends CommandServer {
                 }
 
                 const content = deserialize(rawContent);
+                if (!content.validate(vault.vaultId)) {
+                    console.error("Vault signature is invalid!");
+                    return null;
+                }
+
                 return this.activeVault?.cipher
                     ._decrypt(content.unwrap());
             })
