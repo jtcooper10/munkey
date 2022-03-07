@@ -6,7 +6,7 @@ import { DeviceDiscoveryDecl } from "../discovery";
 import { ServiceContainer } from "../services";
 import { Result } from "../error";
 import { EncryptionCipher, createPbkdf2Cipher } from "../encryption";
-import { deserialize } from "../encryption/serialize";
+import { deserialize, createDataset } from "../encryption/serialize";
 
 type CommandReadCallback = ((sessionInterface: Interface) => Promise<any>) | null;
 type CommandEntry = ((args: string[]) => Promise<CommandReadCallback>) | CommandSet;
@@ -131,6 +131,7 @@ class ShellCommandServer extends CommandServer {
             return Promise.resolve(null);
         }
 
+        let privateKey: Buffer = null;
         let content: { [key: string]: any } | null = await vault.getContent()
             .then(async rawContent => {
                 if (!rawContent)
@@ -149,6 +150,7 @@ class ShellCommandServer extends CommandServer {
                 }
 
                 try {
+                    [ privateKey, decryptedContent ] = EncryptionCipher.splitKey(decryptedContent);
                     return JSON.parse(decryptedContent.toString());
                 }
                 catch {
@@ -161,15 +163,18 @@ class ShellCommandServer extends CommandServer {
                 return null;
             });
 
-        if (!content) {
+        if (!content || !privateKey) {
             console.error("Failed to retrieve vault content.");
             return Promise.resolve(null);
         }
 
         try {
             content = { ...content, [entryKey]: entryData };
-            const data = Buffer.from(JSON.stringify(content));
-            await vault.setContent(await this.activeVault?.cipher.encrypt(data));
+            let data = Buffer.from(JSON.stringify(content));
+            let payload = await this.activeVault?.cipher._encrypt(EncryptionCipher.joinKey(data, privateKey));
+            let dataset = createDataset(EncryptionCipher.wrapPayload(payload), privateKey);
+
+            await vault.setContent(dataset.serialize());
             console.info(`[${entryKey}] = ${entryData}`);
         }
         catch (err) {

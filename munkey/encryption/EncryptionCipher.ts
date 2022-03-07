@@ -61,8 +61,7 @@ class EncryptionCipher {
     public static wrapPayload(payload: VaultPayload): Buffer {
         let header = Buffer.alloc(16);
         header.writeInt32LE(payload.payloadType, 0);
-        header.writeInt32LE(Object.values(VaultAlgorithm)
-            .findIndex(VaultAlgorithm[ payload.algorithm ]), 4);
+        header.writeInt32LE(0, 4); // todo
         header.writeInt32LE(payload.seed.length, 8);
         header.writeInt32LE(payload.vault.length, 12);
 
@@ -93,6 +92,18 @@ class EncryptionCipher {
             cipher.update(plainText),
             cipher.final()
         ]);
+    }
+
+    public async _encrypt(plainText: Buffer): Promise<VaultPayload> {
+        const seed = await EncryptionCipher.createFill(16);
+        const cipher = this.createCipher(seed);
+
+        return {
+            payloadType: 0,
+            algorithm: VaultAlgorithm.AesCbc192,
+            seed,
+            vault: Buffer.concat([ cipher.update(plainText), cipher.final() ]),
+        };
     }
 
     public async decrypt(cipherText: Buffer): Promise<Buffer> {
@@ -129,6 +140,17 @@ class EncryptionCipher {
             keyStart.slice(0, keySize),
             dataStart.slice(0, dataSize),
         ];
+    }
+
+    public static joinKey(payload: Buffer, privateKey: Buffer): Buffer {
+        let size = Buffer.alloc(8);
+        size.writeInt32LE(privateKey.length, 0);
+        size.writeInt32LE(payload.length, 4);
+
+        return Buffer.concat([
+            size.slice(0, 4), privateKey,
+            size.slice(4, 8), payload
+        ]);
     }
 }
 
