@@ -1,4 +1,5 @@
 import { createPublicKey, createVerify } from "crypto";
+import { EncryptionCipher, VaultPayload } from "./EncryptionCipher";
 
 enum VaultSignatureAlgorithm {
     SHA512 = 0,
@@ -11,6 +12,7 @@ interface IVaultDataset {
     payload: Buffer;
 
     validate(publicKey: Buffer): boolean;
+    unwrap(): VaultPayload;
 }
 
 class VaultDatasetV0 implements IVaultDataset {
@@ -56,6 +58,10 @@ class VaultDatasetV0 implements IVaultDataset {
             console.error(err);
             return false;
         }
+    }
+
+    public unwrap(): VaultPayload {
+        return EncryptionCipher.unwrapPayload(this.payload);
     }
 }
 

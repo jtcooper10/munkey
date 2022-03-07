@@ -6,6 +6,7 @@ import { DeviceDiscoveryDecl } from "../discovery";
 import { ServiceContainer } from "../services";
 import { Result } from "../error";
 import { EncryptionCipher, createPbkdf2Cipher } from "../encryption";
+import { deserialize } from "../encryption/serialize";
 
 type CommandReadCallback = ((sessionInterface: Interface) => Promise<any>) | null;
 type CommandEntry = ((args: string[]) => Promise<CommandReadCallback>) | CommandSet;
@@ -185,16 +186,20 @@ class ShellCommandServer extends CommandServer {
         const vault = this.services.vault.getVaultByName(this.activeVault?.name);
 
         return vault.getContent()
-            .then(content => {
-                if (!content) {
+            .then(rawContent => {
+                if (!rawContent) {
                     console.error("No vault data found!");
                     return null;
                 }
 
-                return this.activeVault?.cipher.decrypt(content);
+                const content = deserialize(rawContent);
+                return this.activeVault?.cipher
+                    ._decrypt(content.unwrap());
             })
             .then(content => {
                 if (content) {
+                    let privateKey: Buffer;
+                    [ privateKey, content ] = EncryptionCipher.splitKey(content);
                     content = JSON.parse(content.toString());
                     if (content[entryKey]) {
                         console.info(`[${entryKey}] = ${content[entryKey]}`);

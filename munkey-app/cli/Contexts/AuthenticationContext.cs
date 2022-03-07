@@ -71,7 +71,7 @@ namespace MunkeyCli.Contexts
                     writer.Write(privateKey);
                     writer.Write(plaintextData.Length);
 
-                    cryptoStream.Write(plaintextData);
+                    writer.Write(plaintextData);
                 }
                 payload = new RawVaultPayload
                 {
