@@ -6,7 +6,7 @@ import { DeviceDiscoveryDecl } from "../discovery";
 import { ServiceContainer } from "../services";
 import { Result } from "../error";
 import { EncryptionCipher, createPbkdf2Cipher } from "../encryption";
-import { deserialize, createDataset } from "../encryption/serialize";
+import { deserialize, createDataset, createNewIdentity } from "../encryption/serialize";
 
 type CommandReadCallback = ((sessionInterface: Interface) => Promise<any>) | null;
 type CommandEntry = ((args: string[]) => Promise<CommandReadCallback>) | CommandSet;
@@ -61,12 +61,16 @@ class ShellCommandServer extends CommandServer {
         return Promise.resolve(stream => this
             .promptPasswordCreation(stream)
             .then(async cipher => {
-                // TODO: modify public key when key validation is implemented
-                const initialData: Buffer = await cipher.encrypt(Buffer.from(JSON.stringify({})));
-                const vaultResult = await this.onCreateVault(vaultName, "empty-key", initialData);
+                let [ publicKey, privateKey ] = await createNewIdentity();
+                let data = Buffer.from(JSON.stringify({}));
+                data = EncryptionCipher.joinKey(data, privateKey);
+                data = EncryptionCipher.wrapPayload(await cipher._encrypt(data));
+
+                let dataset = createDataset(data, privateKey);
+                let vaultResult = await this.onCreateVault(vaultName, publicKey.toString("base64url"), dataset.serialize());
 
                 if (vaultResult.success) {
-                    const vaultId = vaultResult.unpack("[unknown]");
+                    const vaultId = vaultResult.unpack(publicKey.toString("base64url"));
 
                     console.info(`Vault created with ID ${vaultId}`);
                     this.activeVault = {

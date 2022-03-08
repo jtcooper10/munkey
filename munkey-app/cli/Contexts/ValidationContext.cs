@@ -20,6 +20,7 @@ namespace MunkeyCli.Contexts
         public static ValidationContext FromKey(byte[] key)
         {
             var dsa = ECDsa.Create();
+            dsa.GenerateKey(ECCurve.NamedCurves.brainpoolP512t1);
             dsa.ImportECPrivateKey(key, out _);
             return new ValidationContext(dsa);
         }

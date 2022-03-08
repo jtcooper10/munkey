@@ -1,4 +1,12 @@
-import { createPublicKey, createVerify, createPrivateKey, createSign, KeyObject } from "crypto";
+import {
+    createPublicKey,
+    createVerify,
+    createPrivateKey,
+    createSign,
+    generateKeyPair,
+    KeyObject,
+    ECKeyPairOptions,
+} from "crypto";
 import { EncryptionCipher, VaultPayload } from "./EncryptionCipher";
 
 enum VaultSignatureAlgorithm {
@@ -112,6 +120,28 @@ function createDataset(payload: Buffer, privateKey: Buffer): IVaultDataset {
     return VaultDatasetV0.sign(payload, privateKey);
 }
 
+async function createNewIdentity(): Promise<[Buffer, Buffer]> {
+    let keyOptions: ECKeyPairOptions<"der", "der"> = {
+        publicKeyEncoding: {
+            format: "der",
+            type: "spki",
+        },
+        privateKeyEncoding: {
+            format: "der",
+            type: "sec1",
+        },
+        namedCurve: "brainpoolP512t1",
+    };
+    return new Promise<[ Buffer, Buffer ]>(function (resolve, reject) {
+        generateKeyPair("ec", keyOptions, (err, publicKey, privateKey) => {
+            if (err) reject(err);
+            else {
+                resolve([ publicKey, privateKey ]);
+            }
+        });
+    });
+}
+
 function mapSignatureAlgo(algoNum: number): VaultSignatureAlgorithm {
     return VaultSignatureAlgorithm[VaultSignatureAlgorithm[algoNum]];
 }
@@ -119,4 +149,5 @@ function mapSignatureAlgo(algoNum: number): VaultSignatureAlgorithm {
 export {
     deserialize,
     createDataset,
+    createNewIdentity,
 };
