@@ -30,7 +30,7 @@ export default class VaultService extends Service {
 
     private loadVaultDb(vaultName: string): VaultDatabase {
         const vaultDb = this.vaultContext.load(vaultName);
-        return new VaultDatabase(vaultDb, this.logger);
+        return new VaultDatabase(vaultDb, this.vaultIdMap.get(vaultName), this.logger);
     }
 
     private setVaultEntry(vaultName: string, vaultId: string, vault: VaultDatabase): VaultDatabase {
@@ -57,8 +57,8 @@ export default class VaultService extends Service {
      * Fails if
      */
     public createVault(vaultName: string,
-                             vaultId?: string,
-                             initialData?: Buffer): VaultOption<VaultDatabase>
+                       vaultId?: string,
+                       initialData?: Buffer): VaultOption<VaultDatabase>
     {
         if (this.vaultIdMap.has(vaultName) || this.vaultMap.has(vaultId)) {
             return failItem({
@@ -68,7 +68,7 @@ export default class VaultService extends Service {
         }
 
         const vaultDb = this.vaultContext.create(vaultName); // fails if the database already exists on-disk
-        const vault = new VaultDatabase(vaultDb, this.logger);
+        const vault = new VaultDatabase(vaultDb, vaultId, this.logger);
         return successItem(this.setVaultEntry(vaultName, vaultId, vault));
     }
 

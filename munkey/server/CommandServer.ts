@@ -15,7 +15,7 @@ import {
     VaultStatus
 } from "../services";
 import { fail, failItem, Option, Result, Status, success, successItem } from "../error";
-import { randomUUID } from "crypto";
+import { deserialize } from "../encryption/serialize";
 
 
 /**
@@ -32,7 +32,7 @@ abstract class CommandServer {
 
     }
 
-    async onCreateVault(vaultName: string, initialData: Buffer): Promise<VaultOption<string>> {
+    async onCreateVault(vaultName: string, vaultId: string, initialData: Buffer): Promise<VaultOption<string>> {
         if (this.services.vault.getVaultByName(vaultName)) {
             return failItem<string, VaultStatus>({
                 status: VaultStatus.CONFLICT,
@@ -40,8 +40,13 @@ abstract class CommandServer {
             });
         }
 
+        // Use the public key (vault ID, currently) to valildate the payload contents.
+        const dataset = deserialize(initialData);
+        if (!dataset.validate(vaultId)) {
+            return failItem({ message: "Failed to validate payload signature" });
+        }
+
         try {
-            const vaultId = randomUUID();
             const vaultResult = this.services.vault.createVault(vaultName, vaultId, initialData);
             if (!vaultResult.success) {
                 return failItem({ message: vaultResult.message });
@@ -99,7 +104,7 @@ abstract class CommandServer {
         }
     }
 
-    async onGetContent(vaultName: string): Promise<VaultOption<Buffer>> {
+    async onGetContent(vaultName: string): Promise<VaultOption<[Buffer, string]>> {
         let vault = this.services.vault.getVaultByName(vaultName);
         if (!vault) {
             return failItem({
@@ -109,13 +114,13 @@ abstract class CommandServer {
 
         let content = await vault.getContent() ?? null;
         if (content === null) {
-            return failItem<Buffer, VaultStatus>({
+            return failItem<[Buffer, string], VaultStatus>({
                 status: Status.FAILURE,
                 message: `Vault ${vaultName} has no content`,
             });
         }
 
-        return successItem(content, { message: "Vault contents retrieved successfully" });
+        return successItem([content, vault.vaultId], { message: "Vault contents retrieved successfully" });
     }
 
     async onSetContent(vaultName: string, content: Buffer): Promise<VaultResult> {
@@ -125,6 +130,11 @@ abstract class CommandServer {
                 status: VaultStatus.NOT_FOUND,
                 message: `No vault found with name ${vaultName}`,
             });
+        }
+
+        let dataset = deserialize(content);
+        if (!dataset.validate(vault.vaultId)) {
+            return fail({ message: "Vault signature is invalid" });
         }
 
         const result = await vault.setContent(content);

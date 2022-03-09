@@ -6,6 +6,7 @@ import { DeviceDiscoveryDecl } from "../discovery";
 import { ServiceContainer } from "../services";
 import { Result } from "../error";
 import { EncryptionCipher, createPbkdf2Cipher } from "../encryption";
+import { deserialize, createDataset, createNewIdentity } from "../encryption/serialize";
 
 type CommandReadCallback = ((sessionInterface: Interface) => Promise<any>) | null;
 type CommandEntry = ((args: string[]) => Promise<CommandReadCallback>) | CommandSet;
@@ -60,11 +61,16 @@ class ShellCommandServer extends CommandServer {
         return Promise.resolve(stream => this
             .promptPasswordCreation(stream)
             .then(async cipher => {
-                const initialData: Buffer = await cipher.encrypt(Buffer.from(JSON.stringify({})));
-                const vaultResult = await this.onCreateVault(vaultName, initialData);
+                let [ publicKey, privateKey ] = await createNewIdentity();
+                let data = Buffer.from(JSON.stringify({}));
+                data = EncryptionCipher.joinKey(data, privateKey);
+                data = EncryptionCipher.wrapPayload(await cipher._encrypt(data));
+
+                let dataset = createDataset(data, privateKey);
+                let vaultResult = await this.onCreateVault(vaultName, publicKey.toString("base64url"), dataset.serialize());
 
                 if (vaultResult.success) {
-                    const vaultId = vaultResult.unpack("[unknown]");
+                    const vaultId = vaultResult.unpack(publicKey.toString("base64url"));
 
                     console.info(`Vault created with ID ${vaultId}`);
                     this.activeVault = {
@@ -129,19 +135,27 @@ class ShellCommandServer extends CommandServer {
             return Promise.resolve(null);
         }
 
+        let privateKey: Buffer = null;
         let content: { [key: string]: any } | null = await vault.getContent()
-            .then(async content => {
-                if (!content)
+            .then(async rawContent => {
+                if (!rawContent)
                     return {};
 
-                content = await this.activeVault?.cipher.decrypt(content);
-                if (!content) {
+                let content = deserialize(rawContent);
+                if (!content.validate(vault.vaultId)) {
+                    console.error("Vault signature is invalid!");
+                    return null;
+                }
+
+                let decryptedContent = await this.activeVault?.cipher._decrypt(content.unwrap());
+                if (!decryptedContent) {
                     console.error("Bad password! Use the command 'vault login' to try a different password.");
                     return null;
                 }
 
                 try {
-                    return JSON.parse(content.toString());
+                    [ privateKey, decryptedContent ] = EncryptionCipher.splitKey(decryptedContent);
+                    return JSON.parse(decryptedContent.toString());
                 }
                 catch {
                     console.error("Database contents are corrupt!");
@@ -153,15 +167,18 @@ class ShellCommandServer extends CommandServer {
                 return null;
             });
 
-        if (!content) {
+        if (!content || !privateKey) {
             console.error("Failed to retrieve vault content.");
             return Promise.resolve(null);
         }
 
         try {
             content = { ...content, [entryKey]: entryData };
-            const data = Buffer.from(JSON.stringify(content));
-            await vault.setContent(await this.activeVault?.cipher.encrypt(data));
+            let data = Buffer.from(JSON.stringify(content));
+            let payload = await this.activeVault?.cipher._encrypt(EncryptionCipher.joinKey(data, privateKey));
+            let dataset = createDataset(EncryptionCipher.wrapPayload(payload), privateKey);
+
+            await vault.setContent(dataset.serialize());
             console.info(`[${entryKey}] = ${entryData}`);
         }
         catch (err) {
@@ -184,16 +201,25 @@ class ShellCommandServer extends CommandServer {
         const vault = this.services.vault.getVaultByName(this.activeVault?.name);
 
         return vault.getContent()
-            .then(content => {
-                if (!content) {
+            .then(rawContent => {
+                if (!rawContent) {
                     console.error("No vault data found!");
                     return null;
                 }
 
-                return this.activeVault?.cipher.decrypt(content);
+                const content = deserialize(rawContent);
+                if (!content.validate(vault.vaultId)) {
+                    console.error("Vault signature is invalid!");
+                    return null;
+                }
+
+                return this.activeVault?.cipher
+                    ._decrypt(content.unwrap());
             })
             .then(content => {
                 if (content) {
+                    let privateKey: Buffer;
+                    [ privateKey, content ] = EncryptionCipher.splitKey(content);
                     content = JSON.parse(content.toString());
                     if (content[entryKey]) {
                         console.info(`[${entryKey}] = ${content[entryKey]}`);

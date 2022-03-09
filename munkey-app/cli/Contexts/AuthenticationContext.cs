@@ -4,13 +4,14 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace MunkeyCli
+namespace MunkeyCli.Contexts
 {
     public class AuthenticationContext
     {
         public static readonly int KEY_SIZE = 24;
         public static readonly int FILL_SIZE = 16;
         public static readonly int ITER_SIZE = 64_000;
+        public static readonly HashAlgorithmName HASH_ALGO = HashAlgorithmName.SHA512;
 
         private byte[] _key;
 
@@ -42,51 +43,74 @@ namespace MunkeyCli
             return builder.ToString();
         }
 
-        public byte[] Encrypt(string plaintextString)
+        public byte[] Encrypt(string plaintextString, byte[] privateKey)
         {
-            return Encrypt(Encoding.ASCII.GetBytes(plaintextString));
+            return Encrypt(Encoding.ASCII.GetBytes(plaintextString), privateKey);
         }
 
-        public byte[] Encrypt(byte[] plaintextData)
+        public byte[] Encrypt(byte[] plaintextData, byte[] privateKey)
         {
-            using var crypt = Aes.Create();
-            crypt.Key = _key;
-            crypt.IV = GenerateFill();
-            crypt.Mode = CipherMode.CBC;
-
-            ICryptoTransform encrypt = crypt.CreateEncryptor(crypt.Key, crypt.IV);
-            // `using` declaration doesn't work for `CryptoStream` for some reason; must use `using` block instead!
-            // https://stackoverflow.com/questions/61761053/converting-a-cryptostream-to-using-declaration-makes-memory-stream-empty-when-te
-            using MemoryStream memoryStream = new();
-            memoryStream.Write(crypt.IV, 0, FILL_SIZE);
-            using (CryptoStream cryptoStream = new(memoryStream, encrypt, CryptoStreamMode.Write)) {
-                cryptoStream.Write(plaintextData);
-            }
-            return memoryStream.ToArray();
-        }
-
-        public string Decrypt(byte[] encryptedData)
-        {
-            string decryptedData;
-            // The first FILL_SIZE bytes are just the unencrypted fill data,
-            // everything else is the encrypted portion.
-            // Here, we split [fill,encrypted] into [fill] and [encrypted].
-            byte[] fillData = encryptedData.Take(FILL_SIZE).ToArray();
-            encryptedData = encryptedData.Skip(FILL_SIZE).ToArray();
-
-            using var crypt = Aes.Create();
-            crypt.Key = _key;
-            crypt.IV = fillData;
-            crypt.Mode = CipherMode.CBC;
-
-            ICryptoTransform decrypt = crypt.CreateDecryptor(crypt.Key, crypt.IV);
-            using MemoryStream memoryStream = new(encryptedData);
-            using (CryptoStream cryptoStream = new(memoryStream, decrypt, CryptoStreamMode.Read)) {
-                using StreamReader reader = new(cryptoStream);
-                decryptedData = reader.ReadToEnd();
-            }
+            IVaultPayload payload;
             
-            return decryptedData;
+            using (var crypt = Aes.Create())
+            {
+                crypt.Key = _key;
+                crypt.IV = GenerateFill();
+                crypt.Mode = CipherMode.CBC;
+                ICryptoTransform encrypt = crypt.CreateEncryptor();
+
+                using MemoryStream memoryStream = new();
+
+                // `using` declaration doesn't work for `CryptoStream` for some reason; must use `using` block instead!
+                // https://stackoverflow.com/questions/61761053/converting-a-cryptostream-to-using-declaration-makes-memory-stream-empty-when-te
+                using (CryptoStream cryptoStream = new(memoryStream, encrypt, CryptoStreamMode.Write))
+                using (BinaryWriter writer = new(cryptoStream))
+                {
+                    // Temporary handler: the private key is wrapped and included as part of the payload.
+                    writer.Write(privateKey.Length);
+                    writer.Write(privateKey);
+                    writer.Write(plaintextData.Length);
+
+                    writer.Write(plaintextData);
+                }
+                payload = new RawVaultPayload
+                {
+                    Seed = crypt.IV,
+                    Vault = memoryStream.ToArray(),
+                };
+            }
+
+            return payload.Serialize();
+        }
+
+        public byte[] DecryptBytes(byte[] ciphertext, out byte[] privateKey)
+        {
+            IVaultPayload payload = new RawVaultPayload()
+                .Deserialize(ciphertext);
+
+            using var crypt = Aes.Create();
+            crypt.Key = _key;
+            crypt.IV = payload.Seed;
+            crypt.Mode = CipherMode.CBC;
+
+            ICryptoTransform decrypt = crypt.CreateDecryptor();
+            using MemoryStream stream = new();
+            using (CryptoStream crypto = new(stream, decrypt, CryptoStreamMode.Write))
+            {
+                crypto.Write(payload.Vault);
+                crypto.Flush();
+                crypto.FlushFinalBlock();
+
+                stream.Position = 0;
+                using BinaryReader binary = new(stream);
+                privateKey = binary.ReadBytes(binary.ReadInt32());
+                return binary.ReadBytes(binary.ReadInt32());
+            }
+        }
+
+        public string Decrypt(byte[] encryptedData, out byte[] privateKey)
+        {
+            return Encoding.ASCII.GetString(DecryptBytes(encryptedData, out privateKey));
         }
 
         private static byte[] GenerateFill()
@@ -100,6 +124,11 @@ namespace MunkeyCli
             byte[] salt = Encoding.ASCII.GetBytes("munkey-salt");
             byte[] rawPassword = Encoding.ASCII.GetBytes(password);
             return Rfc2898DeriveBytes.Pbkdf2(rawPassword, salt, ITER_SIZE, HashAlgorithmName.SHA256, KEY_SIZE);
+        }
+
+        public static AuthenticationContext Create(string password)
+        {
+            return new AuthenticationContext(GenerateKey(password));
         }
     }
 }
