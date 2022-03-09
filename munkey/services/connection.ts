@@ -1,8 +1,7 @@
-import PouchDB from "pouchdb";
-
 import Service, { VaultDB, DatabaseDocument } from "./baseService";
 import { DeviceDiscoveryDecl } from "../discovery";
 import { Option, Result } from "../error";
+import { deserialize } from "../encryption/serialize";
 
 export type VaultSyncToken = PouchDB.Replication.Sync<DatabaseDocument>;
 
@@ -54,8 +53,30 @@ export default class ConnectionService extends Service {
 
             localVault.replicate.from(connectionUrl);
             let connection = localVault.sync<DatabaseDocument>(connectionUrl, { live: true, });
+
             connection
-                .on("change", info => this.logger.info("Changes received", info))
+                .on("change", info => {
+                    this.logger.info("Changes received", info);
+                    if (info.direction !== "pull")
+                        return;
+
+                    let { change: changes } = info;
+                    changes?.docs?.forEach(change => {
+                        let passwords = change && change["_attachments"]["passwords.json"];
+                        if (!passwords) {
+                            this.logger.info("Empty database update received, validation skipped");
+                            return;
+                        }
+
+                        let dataset = deserialize(passwords["data"]);
+                        if (!dataset.validate(vaultId)) {
+                            this.logger.warn("Invalid certificate received for vault %s, rejecting changes", vaultName);
+                            localVault.remove("vault", change._rev)
+                                .then(response => this.logger.info("Revision %s removed due to invalid certificate", response.rev))
+                                .catch(err => this.logger.crit("Failed to reject revision %s for vault %s", change._rev, vaultId, err));
+                        }
+                    });
+                })
                 .on("error", err => {
                     this.logger.error("Error in Sync", err);
                     this.removeRemoteConnection(vaultId, device);
