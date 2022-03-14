@@ -20,7 +20,7 @@ namespace MunkeyCli.Commands
 
         public async Task VaultNew(string name)
         {
-            AuthenticationContext context = AuthenticationContext.PromptPassword();
+            AuthenticationContext context = PromptPassword();
             try
             {
                 using ValidationContext validation = ValidationContext.Create();
@@ -42,7 +42,7 @@ namespace MunkeyCli.Commands
         {
             try
             {
-                await _context.Authenticate().GetVaultEntry(vaultName, entryKey);
+                await _context.Authenticate(PromptPassword()).GetVaultEntry(vaultName, entryKey);
             }
             catch (CryptographicException x)
             {
@@ -58,7 +58,7 @@ namespace MunkeyCli.Commands
         {
             try
             {
-                await _context.Authenticate().SetVaultEntry(vaultName, (entryKey, entryValue));
+                await _context.Authenticate(PromptPassword()).SetVaultEntry(vaultName, (entryKey, entryValue));
             }
             catch (CryptographicException)
             {
@@ -89,7 +89,7 @@ namespace MunkeyCli.Commands
         {
             if (hostname == null)
             {
-                await _context.ResolveVaults(vaultName);
+                await VaultResolve(vaultName);
                 return;
             }
 
@@ -97,10 +97,11 @@ namespace MunkeyCli.Commands
             if (portNum == null)
             {
                 string[] hostPair = hostname.Split(":");
-                string portString = hostname.Split(":").Last();
-                if (!Int32.TryParse(portString, out validPortNum))
+                string portString = hostPair.Last();
+                if (!int.TryParse(portString, out validPortNum))
                 {
                     Console.WriteLine("Cannot resolve vault location; port number invalid or missing");
+                    return;
                 }
                 hostname = hostPair[0];
             }
@@ -108,11 +109,53 @@ namespace MunkeyCli.Commands
             try
             {
                 await _context.VaultLink(vaultName, hostname, validPortNum);
+                Console.WriteLine("Vault linking was successful");
             }
-            catch
+            catch (Exception ex)
             {
-                Console.WriteLine("Connection could not be established");
+                Console.WriteLine("Vault linking was not successful: " + ex.Message);
             }
+        }
+
+        public async Task VaultResolve(string vaultName)
+        {
+            await foreach (var (resolvedName, resolvedHost, resolvedPort) in _context.ResolveVaults(vaultName))
+            {
+                Console.Write($"Vault found ({resolvedName} @ {resolvedHost}:{resolvedPort}), " +
+                              "Link? [y/N] ");
+                if ((Console.ReadLine()?.ToLower() ?? "n") != "y")
+                    continue;
+
+                await _context.VaultLink(resolvedName, resolvedHost, resolvedPort);
+                return;
+            }
+
+            Console.WriteLine("No other vaults found.");
+        }
+
+        private static string? Prompt()
+        {
+            StringBuilder builder = new();
+            ConsoleKeyInfo key;
+            while ((key = Console.ReadKey(true)).Key != ConsoleKey.Enter)
+            {
+                builder.Append(key.KeyChar);
+            }
+
+            Console.WriteLine();
+            return builder.ToString();
+        }
+
+        private static AuthenticationContext PromptPassword()
+        {
+            string? password;
+            do
+            {
+                Console.Write("Enter password: ");
+                password = Prompt();
+            } while (string.IsNullOrEmpty(password));
+
+            return new AuthenticationContext(AuthenticationContext.GenerateKey(password));
         }
     }
 }

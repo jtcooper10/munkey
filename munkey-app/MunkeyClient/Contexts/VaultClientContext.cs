@@ -26,11 +26,6 @@ namespace MunkeyClient.Contexts
                 new VaultNetwork.VaultNetworkClient(channel));
         }
 
-        public AuthenticatedClientContext Authenticate()
-        {
-            return Authenticate(AuthenticationContext.PromptPassword());
-        }
-
         public AuthenticatedClientContext Authenticate(string password)
         {
             byte[] key = AuthenticationContext.GenerateKey(password);
@@ -59,7 +54,7 @@ namespace MunkeyClient.Contexts
 
         public async Task VaultLink(string vaultName, string hostname, int portNum)
         {
-            var result = _network.LinkVault(new RemoteVaultLinkRequest
+            var result = await _network.LinkVaultAsync(new RemoteVaultLinkRequest
             {
                 Location = new()
                 {
@@ -70,14 +65,11 @@ namespace MunkeyClient.Contexts
             });
 
             if (result.Status != VaultStatus.Ok) {
-                Console.WriteLine($"Vault linking failed: {result.Message}");
-                return;
+                throw new Exception(result.Message);
             }
-            
-            Console.WriteLine("Vault linking was successful");
         }
         
-        public async Task ResolveVaults(string vaultName)
+        public async IAsyncEnumerable<(string, string, int)> ResolveVaults(string vaultName)
         {
             using var networkStream = _network.ResolveVault(new VaultRequest
             {
@@ -86,20 +78,13 @@ namespace MunkeyClient.Contexts
 
             await foreach (var resolvedVault in networkStream.ResponseStream.ReadAllAsync())
             {
-                if (!Int32.TryParse(resolvedVault.Location.Port, out var portNum))
+                if (!int.TryParse(resolvedVault.Location.Port, out var portNum))
                 {
                     continue;
                 }
-                
-                Console.Write($"Vault found ({resolvedVault.VaultName} @ {resolvedVault.Location.Host}:{portNum}), " + 
-                              "Link? [y/N] ");
-                if ((Console.ReadLine()?.ToLower() ?? "n") != "y")
-                    continue;
-                
-                await VaultLink(vaultName, resolvedVault.Location.Host, portNum);
+
+                yield return (resolvedVault.VaultName, resolvedVault.Location.Host, portNum);
             }
-            
-            Console.WriteLine("No other vaults found.");
         }
     }
 }
