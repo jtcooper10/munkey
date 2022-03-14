@@ -5,7 +5,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Security.Cryptography;
 
-namespace MunkeyCli.Contexts
+namespace MunkeyClient.Contexts
 {
     public sealed class ValidationContext : IDisposable
     {

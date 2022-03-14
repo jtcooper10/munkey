@@ -4,8 +4,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
-using Grpc.Core;
-using MunkeyCli.Contexts;
+using MunkeyClient.Contexts;
 
 namespace MunkeyCli.Commands
 {
@@ -33,7 +32,7 @@ namespace MunkeyCli.Commands
             {
                 Console.WriteLine("Failed to encrypt starting data: " + ex.Message);
             }
-            catch (RpcException)
+            catch
             {
                 Console.WriteLine("Connection could not be established");
             }
@@ -49,7 +48,7 @@ namespace MunkeyCli.Commands
             {
                 Console.WriteLine("The password provided is invalid: " + x.Message);
             }
-            catch (RpcException)
+            catch
             {
                 Console.WriteLine("Connection could not be established");
             }
@@ -65,7 +64,7 @@ namespace MunkeyCli.Commands
             {
                 Console.WriteLine("The password provided is invalid");
             }
-            catch (RpcException)
+            catch
             {
                 Console.WriteLine("Connection could not be established");
             }
@@ -80,7 +79,7 @@ namespace MunkeyCli.Commands
                     Console.WriteLine($"{name} = Vault[{id}]");
                 }
             }
-            catch (RpcException)
+            catch
             {
                 Console.WriteLine("Connection could not be established");
             }
@@ -110,7 +109,7 @@ namespace MunkeyCli.Commands
             {
                 await _context.VaultLink(vaultName, hostname, validPortNum);
             }
-            catch (RpcException)
+            catch
             {
                 Console.WriteLine("Connection could not be established");
             }

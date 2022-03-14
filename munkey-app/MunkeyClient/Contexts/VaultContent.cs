@@ -5,7 +5,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Text.Json.Nodes;
 
-namespace MunkeyCli.Contexts
+namespace MunkeyClient.Contexts
 {
     public class VaultContent
     {

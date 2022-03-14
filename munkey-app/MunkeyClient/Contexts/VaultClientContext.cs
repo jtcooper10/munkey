@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 using MunkeyRpcClient;
 using Grpc.Core;
 
-namespace MunkeyCli.Contexts
+namespace MunkeyClient.Contexts
 {
     public class VaultClientContext
     {

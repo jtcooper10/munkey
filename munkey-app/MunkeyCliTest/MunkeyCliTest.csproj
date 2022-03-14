@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\cli\MunkeyCli.csproj" />
+    <ProjectReference Include="..\MunkeyClient\MunkeyClient.csproj" />
   </ItemGroup>
 
 </Project>

@@ -8,7 +8,7 @@ using MunkeyRpcClient;
 using System.Text.Json.Nodes;
 using System.Security.Cryptography;
 
-namespace MunkeyCli.Contexts
+namespace MunkeyClient.Contexts
 {
     public class AuthenticatedClientContext
     {
