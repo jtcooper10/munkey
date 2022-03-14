@@ -27,10 +27,11 @@ namespace MunkeyCli.Commands
                 byte[] initialData = context.Encrypt(INITIAL_DATA, validation.ExportPrivateKey());
                 initialData = validation.Wrap(initialData);
                 await _context.Authenticate(context).CreateVault(name, initialData, validation.ExportPublicKey());
+                Console.WriteLine("Vault created successfully");
             }
             catch (CryptographicException ex)
             {
-                Console.WriteLine("Failed to encrypt starting data: " + ex.Message);
+                Console.WriteLine($"Failed to encrypt starting data: {ex.Message}");
             }
             catch
             {
@@ -46,11 +47,12 @@ namespace MunkeyCli.Commands
             }
             catch (CryptographicException x)
             {
-                Console.WriteLine("The password provided is invalid: " + x.Message);
+                Console.WriteLine($"The password provided is invalid: {x.Message}");
             }
-            catch
+            catch (InvalidOperationException x)
             {
                 Console.WriteLine("Connection could not be established");
+                Console.Error.WriteLine($"Failed to get vault content: {x.Message}");
             }
         }
 
@@ -59,14 +61,15 @@ namespace MunkeyCli.Commands
             try
             {
                 await _context.Authenticate(PromptPassword()).SetVaultEntry(vaultName, (entryKey, entryValue));
+                Console.WriteLine($"[{entryKey}] = {entryValue}");
             }
             catch (CryptographicException)
             {
                 Console.WriteLine("The password provided is invalid");
             }
-            catch
+            catch (InvalidOperationException x)
             {
-                Console.WriteLine("Connection could not be established");
+                Console.Error.WriteLine($"Failed to update vault content: {x.Message}");
             }
         }
 

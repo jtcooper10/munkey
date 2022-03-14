@@ -31,66 +31,54 @@ namespace MunkeyClient.Contexts
                 InitialData = ByteString.CopyFrom(initialData),
                 PublicKey = ByteString.CopyFrom(publicKey),
             });
-            Console.WriteLine(response.Message);
+
+            if (response.Status != VaultStatus.Ok)
+            {
+                throw new InvalidOperationException(response.Message);
+            }
         }
 
-        public async Task GetVaultEntry(string vaultName, string entryKey)
+        public async Task<string> GetVaultEntry(string vaultName, string entryKey)
         {
-            try
+            var (result, _) = await FetchVaultContent(vaultName);
+            if (result == null)
             {
-                var (result, _) = await FetchVaultContent(vaultName);
-                if (result == null)
-                {
-                    Console.WriteLine("Invalid JSON; aborting");
-                    return;
-                }
-                if (result[entryKey] == null)
-                {
-                    Console.WriteLine("Entry not found");
-                    return;
-                }
+                throw new InvalidOperationException("Invalid JSON");
+            }
+            if (result[entryKey] == null)
+            {
+                throw new InvalidOperationException("Entry not found");
+            }
 
-                Console.WriteLine($"[{entryKey}] = {result[entryKey]}");
-            }
-            catch (InvalidOperationException ex)
-            {
-                Console.Error.WriteLine("Failed to get vault contents: " + ex.Message);
-            }
+            return result[entryKey];
         }
 
         public async Task SetVaultEntry(string vaultName, (string, string) entry)
         {
-            try
+            var (result, privateKey) = await FetchVaultContent(_authentication, vaultName);
+            if (result == null)
             {
-                var (result, privateKey) = await FetchVaultContent(_authentication, vaultName);
-                if (result == null)
-                {
-                    Console.WriteLine("Invalid JSON; aborting");
-                    return;
-                }
-
-                // Validate the contents of the vault
-                result[entry.Item1] = entry.Item2;
-                byte[] serializedData = _authentication.Encrypt(result.Export(), privateKey);
-
-                using (var validation = ValidationContext.FromKey(privateKey))
-                {
-                    serializedData = validation.Wrap(serializedData);
-                }
-
-                var response = await _client.SetContentAsync(new VaultCreationRequest
-                {
-                    Name = vaultName,
-                    InitialData = ByteString.CopyFrom(serializedData),
-                });
-
-                Console.WriteLine(response.Status == VaultStatus.Ok
-                    ? $"[{entry.Item1}] = {entry.Item2}"
-                    : $"Update unsuccessful: {response.Message}");
+                throw new InvalidOperationException("Invalid JSON; aborting");
             }
-            catch (InvalidOperationException ex)
+
+            // Validate the contents of the vault
+            result[entry.Item1] = entry.Item2;
+            byte[] serializedData = _authentication.Encrypt(result.Export(), privateKey);
+
+            using (var validation = ValidationContext.FromKey(privateKey))
             {
-                Console.Error.WriteLine("Failed to get vault contents: " + ex.Message);
+                serializedData = validation.Wrap(serializedData);
+            }
+
+            var response = await _client.SetContentAsync(new VaultCreationRequest
+            {
+                Name = vaultName,
+                InitialData = ByteString.CopyFrom(serializedData),
+            });
+
+            if (response.Status != VaultStatus.Ok)
+            {
+                throw new InvalidOperationException(response.Message);
             }
         }
 
