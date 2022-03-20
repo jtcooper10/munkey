@@ -5,7 +5,10 @@
     <None Update="App.xaml">
       <SubType>Designer</SubType>
     </None>
-    <Page Update="LoginPage.xaml">
+    <Page Update="View\VaultCreationForm.xaml">
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Update="VaultPage.xaml">
       <SubType>Designer</SubType>
     </Page>
     <None Update="MainWindow.xaml">

@@ -12,7 +12,8 @@
     <EnablePreviewMsixTooling>true</EnablePreviewMsixTooling>
   </PropertyGroup>
   <ItemGroup>
-    <None Remove="LoginPage.xaml" />
+    <None Remove="VaultPage.xaml" />
+    <None Remove="View\VaultCreationForm.xaml" />
   </ItemGroup>
 
   <ItemGroup>
@@ -31,7 +32,15 @@
     <ProjectReference Include="..\MunkeyClient\MunkeyClient.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <Page Update="LoginPage.xaml">
+    <Page Update="Themes\Generic.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Update="VaultPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+  </ItemGroup>
+  <ItemGroup>
+    <Page Update="View\VaultCreationForm.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
   </ItemGroup>

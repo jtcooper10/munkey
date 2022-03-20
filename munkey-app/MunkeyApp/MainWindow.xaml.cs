@@ -7,11 +7,13 @@ using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
+using MunkeyApp.View;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
+using System.Threading.Tasks;
 using Windows.Foundation;
 using Windows.Foundation.Collections;
 using WinRT.Interop;
@@ -31,9 +33,56 @@ namespace MunkeyApp
             Title = DEFAULT_WINDOW_TITLE;
         }
 
-        private void FileFlyoutNew_Click(object sender, RoutedEventArgs e)
+        private async void FileFlyoutNew_Click(object sender, RoutedEventArgs e)
         {
-            
+
+            ContentDialog dialog = new()
+            {
+                Title = "New Vault",
+                Content = new VaultCreationForm(),
+                XamlRoot = MainVaultView.XamlRoot,
+                IsPrimaryButtonEnabled = true,
+                PrimaryButtonText = "Create",
+                CloseButtonText = "Cancel",
+            };
+
+            await dialog.ShowAsync();
+        }
+
+        private async void FileFlyoutOpen_Click(object sender, RoutedEventArgs e)
+        {
+            ContentDialog dialog = new()
+            {
+                Title = "Vault Login",
+                Content = new VaultCreationForm(),
+                XamlRoot = MainVaultView.XamlRoot,
+                IsPrimaryButtonEnabled = true,
+                PrimaryButtonText = "Login",
+                CloseButtonText = "Cancel",
+            };
+
+            await dialog.ShowAsync();
+        }
+        private async void FileFlyoutLinkRemote_Click(object sender, RoutedEventArgs e)
+        {
+            await new ContentDialog()
+            {
+                Title = "Not Implemented",
+                Content = "This control has not yet been implemented",
+                CloseButtonText = "Ok",
+                XamlRoot = MainVaultView.XamlRoot,
+            }.ShowAsync();
+        }
+
+        private async void SettingsFlyoutService_Click(object sender, RoutedEventArgs e)
+        {
+            await new ContentDialog()
+            {
+                Title = "Not Implemented",
+                Content = "This control has not yet been implemented",
+                CloseButtonText = "Ok",
+                XamlRoot = MainVaultView.XamlRoot,
+            }.ShowAsync();
         }
     }
 }
