@@ -32,59 +32,5 @@ namespace MunkeyApp
             InitializeComponent();
             Title = DEFAULT_WINDOW_TITLE;
         }
-
-        private async void FileFlyoutNew_Click(object sender, RoutedEventArgs e)
-        {
-
-            ContentDialog dialog = new()
-            {
-                Title = "New Vault",
-                Content = new VaultCreationForm(),
-                XamlRoot = MainVaultView.XamlRoot,
-                IsPrimaryButtonEnabled = true,
-                PrimaryButtonText = "Create",
-                CloseButtonText = "Cancel",
-            };
-
-            await dialog.ShowAsync();
-        }
-
-        private async void FileFlyoutOpen_Click(object sender, RoutedEventArgs e)
-        {
-            ContentDialog dialog = new()
-            {
-                Title = "Vault Login",
-                Content = new VaultCreationForm(),
-                XamlRoot = MainVaultView.XamlRoot,
-                IsPrimaryButtonEnabled = true,
-                PrimaryButtonText = "Login",
-                CloseButtonText = "Cancel",
-            };
-
-            await dialog.ShowAsync();
-        }
-        private async void FileFlyoutLinkRemote_Click(object sender, RoutedEventArgs e)
-        {
-            await new ContentDialog()
-            {
-                Title = "Link with Remote Vault",
-                Content = new VaultLinkForm(),
-                XamlRoot = MainVaultView.XamlRoot,
-                IsPrimaryButtonEnabled = true,
-                PrimaryButtonText = "Link",
-                CloseButtonText = "Cancel",
-            }.ShowAsync();
-        }
-
-        private async void SettingsFlyoutService_Click(object sender, RoutedEventArgs e)
-        {
-            await new ContentDialog()
-            {
-                Title = "Not Implemented",
-                Content = "This control has not yet been implemented",
-                CloseButtonText = "Ok",
-                XamlRoot = MainVaultView.XamlRoot,
-            }.ShowAsync();
-        }
     }
 }

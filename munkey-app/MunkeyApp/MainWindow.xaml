@@ -7,23 +7,5 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
-    <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-        </Grid.RowDefinitions>
-
-        <MenuBar Grid.Row="0">
-            <MenuBarItem Title="File">
-                <MenuFlyoutItem Text="New" Click="FileFlyoutNew_Click"/>
-                <MenuFlyoutItem Text="Open" Click="FileFlyoutOpen_Click"/>
-                <MenuFlyoutItem Text="Link Remote" Click="FileFlyoutLinkRemote_Click"/>
-            </MenuBarItem>
-            <MenuBarItem Title="Settings">
-                <MenuFlyoutItem Text="Database" Click="SettingsFlyoutService_Click"/>
-            </MenuBarItem>
-        </MenuBar>
-
-        <local:VaultPage x:Name="MainVaultView" Grid.Row="1"/>
-    </Grid>
+    <local:VaultPage x:Name="MainVaultView" Grid.Row="1"/>
 </Window>

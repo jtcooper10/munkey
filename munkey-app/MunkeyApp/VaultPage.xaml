@@ -4,8 +4,84 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:app="using:MunkeyApp"
     mc:Ignorable="d"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+    <Page.Resources>
+        <app:SelectedEntryConverter x:Key="SelectedEntryConverter"/>
+    </Page.Resources>
 
-    <Rectangle Fill="DarkGray"/>
+    <Grid RowSpacing="0">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <MenuBar Grid.Row="0">
+            <MenuBarItem Title="File">
+                <MenuFlyoutItem Text="New" Click="FileFlyoutNew_Click"/>
+                <MenuFlyoutItem Text="Open" Click="FileFlyoutOpen_Click"/>
+                <MenuFlyoutItem Text="Link Remote" Click="FileFlyoutLinkRemote_Click"/>
+            </MenuBarItem>
+            <MenuBarItem Title="Settings">
+                <MenuFlyoutItem Text="Database" Click="SettingsFlyoutService_Click"/>
+            </MenuBarItem>
+        </MenuBar>
+
+        <StackPanel Grid.Row="1">
+            <ListView x:Name="VaultPageEntryList" MaxWidth="640" xmlns:model="using:MunkeyApp.Model"
+                      IsItemClickEnabled="True"
+                      ItemClick="VaultPageEntryList_ItemClick"
+                      ItemsSource="{x:Bind PasswordCollection.Items, Mode=OneWay}"
+                      SelectedItem="{x:Bind PasswordCollection.SelectedItem, Mode=TwoWay}">
+                <ListView.HeaderTemplate>
+                    <DataTemplate>
+                        <Grid MaxWidth="640">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="240"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Row="0" Grid.Column="0" BorderBrush="DarkGray" BorderThickness="0,0,0,1">
+                                <TextBlock Margin="5,0,0,0" Text="Entry Key"/>
+                            </Border>
+                            <Border Grid.Row="0" Grid.Column="1" BorderBrush="DarkGray" BorderThickness="0,0,0,1">
+                                <TextBlock Margin="5,0,0,0" Text="Password"/>
+                            </Border>
+                        </Grid>
+                    </DataTemplate>
+                </ListView.HeaderTemplate>
+                <ListView.ItemTemplate>
+                    <DataTemplate x:DataType="model:PasswordCollectionItem">
+                        <Grid MaxWidth="640">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="240"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center" Text="{x:Bind Path=EntryKey}"/>
+                            <TextBox Grid.Column="1"
+                                 Visibility="{Binding Path=IsVisible, Converter={StaticResource SelectedEntryConverter}, Mode=OneWay}"
+                                 IsReadOnly="True"
+                                 Text="{x:Bind Path=Password, Mode=OneWay}"/>
+                        </Grid>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+
+            <Border MaxWidth="640" BorderBrush="DarkGray" BorderThickness="0,1,0,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="240"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="New Entry" FontWeight="Bold"/>
+                    <TextBox Grid.Row="1" Grid.Column="0" PlaceholderText="Key"/>
+                    <PasswordBox Grid.Row="1" Grid.Column="1" PlaceholderText="Password"/>
+                </Grid>
+            </Border>
+        </StackPanel>
+    </Grid>
 </Page>
