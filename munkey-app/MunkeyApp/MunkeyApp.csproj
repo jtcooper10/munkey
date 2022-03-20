@@ -14,6 +14,7 @@
   <ItemGroup>
     <None Remove="VaultPage.xaml" />
     <None Remove="View\VaultCreationForm.xaml" />
+    <None Remove="View\VaultLinkForm.xaml" />
   </ItemGroup>
 
   <ItemGroup>
@@ -30,6 +31,11 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\MunkeyClient\MunkeyClient.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Page Update="View\VaultLinkForm.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
   </ItemGroup>
   <ItemGroup>
     <Page Update="Themes\Generic.xaml">

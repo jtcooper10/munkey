@@ -67,10 +67,12 @@ namespace MunkeyApp
         {
             await new ContentDialog()
             {
-                Title = "Not Implemented",
-                Content = "This control has not yet been implemented",
-                CloseButtonText = "Ok",
+                Title = "Link with Remote Vault",
+                Content = new VaultLinkForm(),
                 XamlRoot = MainVaultView.XamlRoot,
+                IsPrimaryButtonEnabled = true,
+                PrimaryButtonText = "Link",
+                CloseButtonText = "Cancel",
             }.ShowAsync();
         }
 
