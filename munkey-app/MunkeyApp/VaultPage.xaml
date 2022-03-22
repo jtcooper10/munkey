@@ -4,7 +4,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    xmlns:app="using:MunkeyApp"
+    xmlns:app="using:MunkeyApp" xmlns:view="using:MunkeyApp.View"
     mc:Ignorable="d"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
     <Page.Resources>
@@ -68,19 +68,7 @@
             </ListView>
 
             <Border MaxWidth="640" BorderBrush="DarkGray" BorderThickness="0,1,0,0">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="240"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="New Entry" FontWeight="Bold"/>
-                    <TextBox Grid.Row="1" Grid.Column="0" PlaceholderText="Key"/>
-                    <PasswordBox Grid.Row="1" Grid.Column="1" PlaceholderText="Password"/>
-                </Grid>
+                <view:PasswordEntryForm OnSubmit="{x:Bind PasswordCollection.SetPassword}"/>
             </Border>
         </StackPanel>
     </Grid>

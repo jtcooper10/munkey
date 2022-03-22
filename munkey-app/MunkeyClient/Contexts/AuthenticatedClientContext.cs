@@ -55,7 +55,7 @@ namespace MunkeyClient.Contexts
 
         public async Task SetVaultEntry(string vaultName, (string, string) entry)
         {
-            var (result, privateKey) = await FetchVaultContent(_authentication, vaultName);
+            var (result, privateKey) = await FetchVaultContent(vaultName);
             if (result == null)
             {
                 throw new InvalidOperationException("Invalid JSON; aborting");
@@ -82,7 +82,7 @@ namespace MunkeyClient.Contexts
             }
         }
 
-        private async Task<(VaultContent, byte[])> FetchVaultContent(string vaultName)
+        public async Task<(VaultContent, byte[])> FetchVaultContent(string vaultName)
         {
             return await FetchVaultContent(_authentication, vaultName);
         }

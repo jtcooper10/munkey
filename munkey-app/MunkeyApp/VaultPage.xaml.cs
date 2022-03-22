@@ -85,16 +85,27 @@ namespace MunkeyApp
 
         private async void FileFlyoutOpen_Click(object sender, RoutedEventArgs e)
         {
-            ContentDialog dialog = new()
+            ContentDialog dialog;
+            try
             {
-                Title = "Vault Login",
-                Content = new VaultCreationForm(),
-                XamlRoot = this.XamlRoot,
-                IsPrimaryButtonEnabled = true,
-                PrimaryButtonText = "Login",
-                CloseButtonText = "Cancel",
-            };
-
+                VaultCreationForm form = new(PasswordCollection.OpenClient);
+                dialog = new()
+                {
+                    Title = "Open Vault",
+                    Content = form,
+                    XamlRoot = this.XamlRoot,
+                    CloseButtonText = "Cancel",
+                };
+            }
+            catch (Exception ex)
+            {
+                dialog = new()
+                {
+                    Title = $"No Vault ({ex.GetType()})",
+                    Content = ex.Message,
+                    CloseButtonText = "Ok",
+                };
+            }
             await dialog.ShowAsync();
         }
         private async void FileFlyoutLinkRemote_Click(object sender, RoutedEventArgs e)
@@ -135,5 +146,6 @@ namespace MunkeyApp
         }
 
         private Grpc.Core.ChannelBase _channel;
+
     }
 }
