@@ -34,7 +34,7 @@ namespace MunkeyClient.Contexts
 
             if (response.Status != VaultStatus.Ok)
             {
-                throw new InvalidOperationException(response.Message);
+                throw new Exception(response.Message);
             }
         }
 
@@ -111,7 +111,7 @@ namespace MunkeyClient.Contexts
             }
 
             string decrypted = context.Decrypt(dataset.Payload, out var privateKey);
-            return (VaultContent.Parse(decrypted, dataset.Signature), privateKey);
+            return (VaultContent.Parse(decrypted), privateKey);
         }
     }
 }

@@ -15,6 +15,8 @@ using Windows.Foundation.Collections;
 
 using MunkeyApp.Model;
 using MunkeyApp.View;
+using MunkeyClient.Contexts;
+using Grpc.Net.Client;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -45,7 +47,11 @@ namespace MunkeyApp
         public VaultPage()
         {
             this.InitializeComponent();
-            PasswordCollection = new PasswordCollectionViewModel();
+            _channel = GrpcChannel.ForAddress("http://localhost:5050", new GrpcChannelOptions
+            {
+                Credentials = Grpc.Core.ChannelCredentials.Insecure,
+            });
+            PasswordCollection = new PasswordCollectionViewModel(VaultClientContext.Create(_channel));
         }
 
         private PasswordCollectionViewModel PasswordCollection { get; set; }
@@ -53,17 +59,27 @@ namespace MunkeyApp
 
         private async void FileFlyoutNew_Click(object sender, RoutedEventArgs e)
         {
-
-            ContentDialog dialog = new()
+            ContentDialog dialog;
+            try
             {
-                Title = "New Vault",
-                Content = new VaultCreationForm(),
-                XamlRoot = this.XamlRoot,
-                IsPrimaryButtonEnabled = true,
-                PrimaryButtonText = "Create",
-                CloseButtonText = "Cancel",
-            };
-
+                VaultCreationForm form = new(PasswordCollection.CreateClient);
+                dialog = new()
+                {
+                    Title = "New Vault",
+                    Content = form,
+                    XamlRoot = this.XamlRoot,
+                    CloseButtonText = "Cancel",
+                };
+            }
+            catch (Exception ex)
+            {
+                dialog = new()
+                {
+                    Title = $"No Vault ({ex.GetType()})",
+                    Content = ex.Message,
+                    CloseButtonText = "Ok",
+                };
+            }
             await dialog.ShowAsync();
         }
 
@@ -117,5 +133,7 @@ namespace MunkeyApp
                     item.IsVisible = !item.IsVisible;
             }
         }
+
+        private Grpc.Core.ChannelBase _channel;
     }
 }

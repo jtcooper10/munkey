@@ -13,6 +13,8 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <Grid.ColumnDefinitions>
@@ -21,8 +23,10 @@
         </Grid.ColumnDefinitions>
 
         <TextBlock Grid.Row="0" Grid.Column="0" Text="Name"/>
-        <TextBox Grid.Row="0" Grid.Column="1"/>
+        <TextBox Grid.Row="0" Grid.Column="1" Text="{x:Bind VaultName, Mode=TwoWay}"/>
         <TextBlock Grid.Row="1" Grid.Column="0" Text="Password"/>
-        <PasswordBox Grid.Row="1" Grid.Column="1"/>
+        <PasswordBox Grid.Row="1" Grid.Column="1" PasswordChanged="PasswordBox_PasswordChanged"/>
+        <Button Grid.Row="2" Grid.Column="1" Content="Submit" Command="{x:Bind CreateVault}"/>
+        <TextBlock Grid.Row="3" Grid.ColumnSpan="2" Text="{x:Bind ValidationErrorMessage, Mode=OneWay}"/>
     </Grid>
 </UserControl>

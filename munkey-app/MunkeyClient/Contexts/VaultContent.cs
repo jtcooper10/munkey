@@ -4,23 +4,31 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Text.Json.Nodes;
+using System.Collections;
 
 namespace MunkeyClient.Contexts
 {
-    public class VaultContent
+    public interface IVaultContent : IEnumerable<(string, string)>
     {
-        private JsonNode? _json;
-        private byte[] _certificate;
+        public string Name { get; }
+        public string this[string key] { get; }
+        public byte[] Export();
+    }
 
-        private VaultContent(JsonNode? root, byte[] certificate)
+    public class VaultContent : IVaultContent
+    {
+        public static readonly byte[] INITIAL_DATA = Encoding.ASCII.GetBytes("{}");
+        public string Name { get; }
+
+        private VaultContent(JsonNode? root, string name = "unknown")
         {
             _json = root;
-            _certificate = certificate;
+            Name = name;
         }
 
-        public static VaultContent Parse(string source, byte[] signature)
+        public static VaultContent Parse(string source)
         {
-            return new VaultContent(JsonNode.Parse(source), signature);
+            return new VaultContent(JsonNode.Parse(source));
         }
 
         public string this[string i]
@@ -29,15 +37,26 @@ namespace MunkeyClient.Contexts
             set { if (_json != null) _json[i] = value; }
         }
 
-        public byte[] Certificate
-        {
-            get { return _certificate; }
-        }
-
         public byte[] Export()
         {
             return Encoding.ASCII.GetBytes(_json?.ToJsonString() ?? "");
         }
+
+        public IEnumerator<(string, string)> GetEnumerator()
+        {
+            if (_json == null)
+                yield break;
+            foreach (var(key, node) in _json.AsObject())
+            {
+                if (node == null)
+                    continue;
+                yield return (key, node.ToString());
+            }
+        }
+
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+        private JsonNode? _json;
     }
 
     public interface IVaultPayload
