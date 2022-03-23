@@ -68,7 +68,14 @@
             </ListView>
 
             <Border MaxWidth="640" BorderBrush="DarkGray" BorderThickness="0,1,0,0">
-                <view:PasswordEntryForm OnSubmit="{x:Bind PasswordCollection.SetPassword}"/>
+                <StackPanel>
+                    <view:PasswordEntryForm OnSubmit="{x:Bind PasswordCollection.SetPassword}"/>
+                    <TextBlock Text="{x:Bind PasswordCollection.Message, Mode=OneWay}"/>
+                    <StackPanel Margin="0,8" Spacing="8" Orientation="Horizontal">
+                        <Button Content="Save" Command="{x:Bind PasswordCollection.SavePasswords}" ToolTipService.ToolTip="Commit password changes to the database"/>
+                        <Button Content="Pull" ToolTipService.ToolTip="Check for changes from the network"/>
+                    </StackPanel>
+                </StackPanel>
             </Border>
         </StackPanel>
     </Grid>

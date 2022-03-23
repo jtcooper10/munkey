@@ -63,8 +63,12 @@ namespace MunkeyClient.Contexts
 
             // Validate the contents of the vault
             result[entry.Item1] = entry.Item2;
-            byte[] serializedData = _authentication.Encrypt(result.Export(), privateKey);
+            await PushVaultContent(vaultName, result.Export(), privateKey);
+        }
 
+        public async Task PushVaultContent(string vaultName, byte[] serializedData, byte[] privateKey)
+        {
+            serializedData = _authentication.Encrypt(serializedData, privateKey);
             using (var validation = ValidationContext.FromKey(privateKey))
             {
                 serializedData = validation.Wrap(serializedData);
