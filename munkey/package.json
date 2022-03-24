@@ -5,7 +5,10 @@
   "main": "bin/munkey.js",
   "scripts": {
     "build": "tsc",
-    "start": "npm run build && node munkey/bin/munkey.js",
+    "start": "node bin/munkey.js --in-memory --shell",
+    "start:alt": "node bin/munkey.js --in-memory --shell --port 8001 --rpc 5051",
+    "start:disc": "node bin/munkey.js --in-memory --shell --discovery 9000",
+    "start:disc:alt": "node bin/munkey.js --in-memory --shell --discovery 9001 --port 8001 --rpc 5051",
     "clean": "rm -rf bin node_modules",
     "test": "mocha --config ./.mocharc.json --extension .test.ts --recursive test/",
     "test:unit": "mocha --config ./.mocharc.json --extension .test.ts --recursive test/unit/",

@@ -30,6 +30,7 @@ namespace MunkeyApp.Model
             _message = "Use the buttons below to save or sync your database";
 
             SavePasswords = new ManualCollectionSyncCommand(this);
+            PullPasswords = new ManualCollectionPullCommand(this);
             SetPassword = new PasswordSetCommand(this);
         }
 
@@ -82,7 +83,46 @@ namespace MunkeyApp.Model
             AuthenticationContext auth = new(key);
             AuthenticatedClientContext client = _remote.Authenticate(auth);
             var (content, privateKey) = await client.FetchVaultContent(vaultName);
+            ReplaceContent(content);
 
+            _vaultName = vaultName;
+            _client = client;
+            _key = privateKey;
+        }
+
+        public async Task SaveClient()
+        {
+            // TODO: require users to login so that _client is never null
+            if (_client == null)
+                throw new InvalidOperationException("Cannot sync changes; vault service not connected");
+            if (_key == null)
+                throw new InvalidOperationException("Cannot sync changes; vault signature key is null");
+            if (_vaultName == null)
+                throw new InvalidOperationException("Cannot sync changes; unknown vault name");
+
+            var dict = Items.ToDictionary((entry) => entry.EntryKey, (entry) => entry.Password);
+
+            await _client.PushVaultContent(_vaultName, JsonSerializer.SerializeToUtf8Bytes(dict), _key);
+        }
+
+        public async Task UpdateClient()
+        {
+            // TODO: require users to login so that _client is never null
+            if (_client == null)
+                throw new InvalidOperationException("Cannot sync changes; vault service not connected");
+            if (_key == null)
+                throw new InvalidOperationException("Cannot sync changes; vault signature key is null");
+            if (_vaultName == null)
+                throw new InvalidOperationException("Cannot sync changes; unknown vault name");
+
+
+            var (content, key) = await _client.FetchVaultContent(_vaultName);
+            ReplaceContent(content);
+            _key = key;
+        }
+
+        public void ReplaceContent(VaultContent content)
+        {
             Items.Clear();
             foreach (var (entryKey, item) in content)
             {
@@ -92,10 +132,6 @@ namespace MunkeyApp.Model
                     Password = item,
                 });
             }
-
-            _vaultName = vaultName;
-            _client = client;
-            _key = privateKey;
         }
 
         public PasswordCollectionItem SelectedItem
@@ -159,23 +195,10 @@ namespace MunkeyApp.Model
 
             public void Execute(object parameter)
             {
-                // TODO: require users to login so that _client is never null
-                if (_viewModel._client == null)
-                    throw new InvalidOperationException("Cannot sync changes; vault service not connected");
-                if (_viewModel._key == null)
-                    throw new InvalidOperationException("Cannot sync changes; vault signature key is null");
-                if (_viewModel._vaultName == null)
-                    throw new InvalidOperationException("Cannot sync changes; unknown vault name");
-
                 _viewModel.Message = "Saving vault content...";
                 try
                 {
-                    var dict = _viewModel.Items
-                    .ToDictionary((entry) => entry.EntryKey, (entry) => entry.Password);
-
-                    _viewModel._client
-                        .PushVaultContent(_viewModel._vaultName, JsonSerializer.SerializeToUtf8Bytes(dict), _viewModel._key)
-                        .GetAwaiter()
+                    _viewModel.SaveClient().GetAwaiter()
                         .OnCompleted(() =>
                         {
                             _viewModel.Message = "Vault contents were saved successfully";
@@ -184,6 +207,33 @@ namespace MunkeyApp.Model
                 catch
                 {
                     _viewModel.Message = "Failed to save";
+                }
+            }
+        }
+
+        public class ManualCollectionPullCommand : ICommand
+        {
+            public event EventHandler CanExecuteChanged;
+            private PasswordCollectionViewModel _viewModel;
+
+            public ManualCollectionPullCommand(PasswordCollectionViewModel viewModel)
+            {
+                _viewModel = viewModel ?? throw new ArgumentNullException("viewModel");
+            }
+
+            public bool CanExecute(object parameter) => true;
+
+            public async void Execute(object parameter)
+            {
+                _viewModel.Message = "Fetching vault content...";
+                try
+                {
+                    await _viewModel.UpdateClient();
+                    _viewModel.Message = "Vault contents were pulled successfully";
+                }
+                catch
+                {
+                    _viewModel.Message = "Failed to fetch vault content";
                 }
             }
         }
