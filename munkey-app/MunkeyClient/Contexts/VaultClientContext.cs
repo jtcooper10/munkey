@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using MunkeyRpcClient;
 using Grpc.Core;
+using System.Runtime.CompilerServices;
 
 namespace MunkeyClient.Contexts
 {
@@ -65,18 +66,23 @@ namespace MunkeyClient.Contexts
             });
 
             if (result.Status != VaultStatus.Ok) {
-                throw new Exception(result.Message);
+                throw new ApplicationException(result.Message);
             }
         }
+
+        public IAsyncEnumerable<(string, string, int)> ResolveVaults(string vaultName)
+        {
+            return ResolveVaults(vaultName, CancellationToken.None);
+        }
         
-        public async IAsyncEnumerable<(string, string, int)> ResolveVaults(string vaultName)
+        public async IAsyncEnumerable<(string, string, int)> ResolveVaults(string vaultName, [EnumeratorCancellation] CancellationToken cancel)
         {
             using var networkStream = _network.ResolveVault(new VaultRequest
             {
                 Name = vaultName,
             });
 
-            await foreach (var resolvedVault in networkStream.ResponseStream.ReadAllAsync())
+            await foreach (var resolvedVault in networkStream.ResponseStream.ReadAllAsync(cancel))
             {
                 if (!int.TryParse(resolvedVault.Location.Port, out var portNum))
                 {
@@ -84,6 +90,8 @@ namespace MunkeyClient.Contexts
                 }
 
                 yield return (resolvedVault.VaultName, resolvedVault.Location.Host, portNum);
+                if (cancel.IsCancellationRequested)
+                    yield break;
             }
         }
     }

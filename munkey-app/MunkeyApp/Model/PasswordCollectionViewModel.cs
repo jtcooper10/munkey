@@ -5,6 +5,7 @@ using System.ComponentModel;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using Grpc.Core;
@@ -78,6 +79,38 @@ namespace MunkeyApp.Model
             _key = key;
         }
 
+        public async Task LinkRemoteClient(string vaultName, byte[] encryptionKey, string hostname, int portNum)
+        {
+            await _remote.VaultLink(vaultName, hostname, portNum);
+            await OpenClient(vaultName, encryptionKey);
+        }
+
+        public async Task ResolveRemoteClient(string vaultName, byte[] encryptionKey)
+        {
+            bool vaultResolved = false;
+            using (CancellationTokenSource cancellation = new())
+            {
+                await foreach (var (_, host, port) in _remote.ResolveVaults(vaultName, cancellation.Token))
+                {
+                    try
+                    {
+                        await _remote.VaultLink(vaultName, host, port);
+                        vaultResolved = true;
+                    }
+                    catch (ApplicationException)
+                    {
+                        continue;
+                    }
+
+                    vaultResolved = true;
+                }
+            }
+
+            if (!vaultResolved)
+                throw new Exception($"Vault name '{vaultName}' could not be resolved");
+            await OpenClient(vaultName, encryptionKey);
+        }
+
         public async Task OpenClient(string vaultName, byte[] key)
         {
             AuthenticationContext auth = new(key);
@@ -115,11 +148,11 @@ namespace MunkeyApp.Model
             if (_vaultName == null)
                 throw new InvalidOperationException("Cannot sync changes; unknown vault name");
 
-
             var (content, key) = await _client.FetchVaultContent(_vaultName);
             ReplaceContent(content);
             _key = key;
         }
+
 
         public void ReplaceContent(VaultContent content)
         {

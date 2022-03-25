@@ -12,17 +12,29 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="240"/>
             </Grid.ColumnDefinitions>
-            <TextBlock Grid.Row="0" Grid.Column="0" Text="Host"/>
-            <TextBox Grid.Row="0" Grid.Column="1"/>
-            <TextBlock Grid.Row="1" Grid.Column="0" Text="Port"/>
-            <TextBox Grid.Row="1" Grid.Column="1"/>
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Name"/>
+            <TextBox Grid.Row="0" Grid.Column="1" Text="{x:Bind VaultName, Mode=TwoWay}"/>
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Password"/>
+            <PasswordBox Grid.Row="1" Grid.Column="1" PasswordChanged="PasswordBox_PasswordChanged"/>
+            <Border Margin="0,8" Padding="6" Grid.Row="2" Grid.ColumnSpan="2"  BorderThickness="0,1,0,0" BorderBrush="AliceBlue">
+                <TextBlock Text="Networking (Optional)"/>
+            </Border>
+            <TextBlock Grid.Row="3" Grid.Column="0" Text="Host"/>
+            <TextBox Grid.Row="3" Grid.Column="1" Text="{x:Bind RemoteHost, Mode=TwoWay}"/>
+            <TextBlock Grid.Row="4" Grid.Column="0" Text="Port"/>
+            <NumberBox Grid.Row="4" Grid.Column="1" Value="{x:Bind RemotePort, Mode=TwoWay}"/>
+            <Button Grid.Row="5" Grid.Column="1" Content="Submit" Command="{x:Bind LinkVault}"/>
         </Grid>
-        <Border BorderBrush="DimGray" BorderThickness="0.5" VerticalAlignment="Center"/>
-        <local:VaultCreationForm/>
+        <TextBlock Text="{x:Bind ValidationErrorMessage, Mode=OneWay}"/>
     </StackPanel>
 </UserControl>

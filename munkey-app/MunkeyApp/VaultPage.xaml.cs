@@ -113,10 +113,10 @@ namespace MunkeyApp
             await new ContentDialog()
             {
                 Title = "Link with Remote Vault",
-                Content = new VaultLinkForm(),
+                Content = new VaultLinkForm(
+                    PasswordCollection.LinkRemoteClient,
+                    PasswordCollection.ResolveRemoteClient),
                 XamlRoot = this.XamlRoot,
-                IsPrimaryButtonEnabled = true,
-                PrimaryButtonText = "Link",
                 CloseButtonText = "Cancel",
             }.ShowAsync();
         }
