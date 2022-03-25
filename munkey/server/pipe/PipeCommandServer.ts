@@ -34,7 +34,6 @@ export default class PipeCommandServer extends CommandServer {
     private static bindService(server: grpc.Server, credentials: grpc.ServerCredentials, address: string): Promise<grpc.Server> {
         return new Promise<grpc.Server>((resolve, reject) => {
             server.bindAsync(address, credentials, err => {
-                console.log(err);
                 if (err)
                     reject(err);
                 server.start();

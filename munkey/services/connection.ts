@@ -42,7 +42,8 @@ export default class ConnectionService extends Service {
         device: DeviceDiscoveryDecl,
         vaultName: string,
         vaultId: string,
-        localVault: VaultDB): VaultSyncToken
+        localVault: VaultDB,
+        onFirstPull?: (success: boolean) => void): VaultSyncToken
     {
         let connectionMap = this.getOrCreateMap(vaultId);
         let connectionKey = `${device.hostname}:${device.portNum}`;
@@ -51,7 +52,8 @@ export default class ConnectionService extends Service {
         if (!connectionMap.get(connectionKey)) {
             this.logger.info("Adding remote connection to %s", connectionKey);
 
-            localVault.replicate.from(connectionUrl);
+            localVault.replicate.from(connectionUrl)
+                .then(({ ok }) => onFirstPull && onFirstPull(ok));
             let connection = localVault.sync<DatabaseDocument>(connectionUrl, { live: true, });
 
             connection

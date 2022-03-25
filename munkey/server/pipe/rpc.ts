@@ -100,6 +100,15 @@ export default function createVaultServer<T extends CommandServer>(commands: T):
             const entry = new VaultEntry().setName(call.request.getName());
             commands.onGetContent(call.request.getName())
                 .then(content => {
+                    if (!content.success) {
+                        switch (content.status) {
+                            case VaultStatus.CONFLICT:
+                                return respond(null, new VaultData().setStatus(RpcVaultStatus.CONFLICT));
+                            case VaultStatus.NOT_FOUND:
+                            default:
+                                return respond(null, new VaultData().setStatus(RpcVaultStatus.NOTFOUND));
+                        }
+                    }
                     const publicKey: Buffer = Buffer.from(content.data[1], "base64url");
                     return mapVaultData(new VaultData().setEntry(entry.setPublickey(publicKey)), content, respond);
                 });
