@@ -9,6 +9,7 @@
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
     <Page.Resources>
         <app:SelectedEntryConverter x:Key="SelectedEntryConverter"/>
+        <app:SelectedEntryConverter x:Key="SelectedEntryInverter" Invert="True"/>
     </Page.Resources>
 
     <Grid RowSpacing="0">
@@ -22,13 +23,24 @@
                 <MenuFlyoutItem Text="New" Click="FileFlyoutNew_Click"/>
                 <MenuFlyoutItem Text="Open" Click="FileFlyoutOpen_Click"/>
                 <MenuFlyoutItem Text="Link Remote" Click="FileFlyoutLinkRemote_Click"/>
+                <MenuFlyoutItem Text="Close" Command="{x:Bind CloseVault}"/>
             </MenuBarItem>
             <MenuBarItem Title="Settings">
                 <MenuFlyoutItem Text="Database" Click="SettingsFlyoutService_Click"/>
             </MenuBarItem>
         </MenuBar>
 
-        <StackPanel Grid.Row="1">
+        <StackPanel Grid.Row="1" Visibility="{x:Bind PasswordCollection.IsActive, Converter={StaticResource SelectedEntryInverter}, Mode=OneWay}"
+                    Orientation="Vertical">
+            <TextBlock HorizontalAlignment="Center" Text="No Vault Selected" FontSize="40"/>
+            <TextBlock HorizontalAlignment="Center" Text="Use the File menu to create, open, or link to a new vault." FontSize="24"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="1" Visibility="{x:Bind PasswordCollection.IsActive, Converter={StaticResource SelectedEntryConverter}, Mode=OneWay}">
+            <StackPanel Orientation="Horizontal" Spacing="8" MaxWidth="640" Margin="0,0,0,16">
+                <TextBlock Text="Vault:" FontWeight="Bold"/>
+                <TextBlock Text="{x:Bind PasswordCollection.SelectedVaultName, Mode=OneWay}"/>
+            </StackPanel>
             <ListView x:Name="VaultPageEntryList" MaxWidth="640" xmlns:model="using:MunkeyApp.Model"
                       IsItemClickEnabled="True"
                       ItemClick="VaultPageEntryList_ItemClick"

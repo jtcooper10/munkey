@@ -17,19 +17,20 @@ using MunkeyApp.Model;
 using MunkeyApp.View;
 using MunkeyClient.Contexts;
 using Grpc.Net.Client;
-
+using System.Windows.Input;
 
 namespace MunkeyApp
 {
     public sealed class SelectedEntryConverter : IValueConverter
     {
+        public bool Invert { get; set; } = false;
         public object Convert(object value, Type targetType, object parameter, string language)
         {
             if (targetType == typeof(Visibility))
-                return ((bool) value)
+                return ((bool) value) ^ Invert
                     ? Visibility.Visible
                     : Visibility.Collapsed;
-            return !(bool) value;
+            return !((bool) value) ^ Invert;
         }
 
         public object ConvertBack(object value, Type targetType, object parameter, string language)
@@ -45,10 +46,36 @@ namespace MunkeyApp
             this.InitializeComponent();
             Network = new();
             PasswordCollection = new PasswordCollectionViewModel(VaultClientContext.Create(Network.Channel));
+            CloseVault = new VaultCloseCommand(PasswordCollection);
         }
 
         private PasswordCollectionViewModel PasswordCollection { get; set; }
         private NetworkModel Network { get; set; }
+        private ICommand CloseVault { get; set; }
+
+        public class VaultCloseCommand : ICommand
+        {
+            private PasswordCollectionViewModel _view;
+
+            public event EventHandler CanExecuteChanged;
+
+            public VaultCloseCommand(PasswordCollectionViewModel viewModel)
+            {
+                _view = viewModel;
+                _view.PropertyChanged += (sender, args) =>
+                {
+                    if (args.PropertyName == nameof(PasswordCollectionViewModel.IsActive))
+                        CanExecuteChanged?.Invoke(this, EventArgs.Empty);
+                };
+            }
+
+            public bool CanExecute(object parameter) => _view.IsActive;
+
+            public void Execute(object parameter)
+            {
+                _view.CloseClient();
+            }
+        }
 
         private async void FileFlyoutNew_Click(object sender, RoutedEventArgs e)
         {

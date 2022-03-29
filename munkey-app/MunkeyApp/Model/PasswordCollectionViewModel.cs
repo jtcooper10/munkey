@@ -47,6 +47,18 @@ namespace MunkeyApp.Model
             }
         }
 
+        public string SelectedVaultName
+        {
+            get { return _vaultName; }
+            set
+            {
+                if (value?.Equals(_vaultName) ?? false)
+                    return;
+                _vaultName = value;
+                PropertyChanged.Invoke(this, new PropertyChangedEventArgs(nameof(SelectedVaultName)));
+            }
+        }
+
         public ICommand SetPassword { get; set; }
         public ICommand SavePasswords { get; set; }
         public ICommand PullPasswords { get; set; }
@@ -64,8 +76,17 @@ namespace MunkeyApp.Model
         public AuthenticatedClientContext Client
         {
             get { return _client; }
-            set { _client = value; }
+            set
+            {
+                if (value?.Equals(_client) ?? false)
+                    return;
+                _client = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Client)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsActive)));
+            }
         }
+
+        public bool IsActive { get => _client != null; }
 
         public async Task CreateClient(string vaultName, byte[] encryptionKey)
         {
@@ -79,8 +100,7 @@ namespace MunkeyApp.Model
             Client = newClient;
             Items.Clear();
 
-            _vaultName = vaultName;
-            _client = newClient;
+            SelectedVaultName = vaultName;
             _key = key;
         }
 
@@ -123,9 +143,18 @@ namespace MunkeyApp.Model
             var (content, privateKey) = await client.FetchVaultContent(vaultName);
             ReplaceContent(content);
 
-            _vaultName = vaultName;
-            _client = client;
+            Client = client;
+            SelectedVaultName = vaultName;
             _key = privateKey;
+        }
+
+        public void CloseClient()
+        {
+            Client = null;
+            SelectedItem = null;
+            SelectedVaultName = null;
+            Message = "Use the buttons below to save or sync your database";
+            _key = Array.Empty<byte>();
         }
 
         public async Task SaveClient()
