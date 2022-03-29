@@ -1,0 +1,30 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup />
+  <ItemGroup>
+    <None Update="App.xaml">
+      <SubType>Designer</SubType>
+    </None>
+    <Page Update="View\DatabaseSettingsForm.xaml">
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Update="View\PasswordEntryForm.xaml">
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Update="View\VaultLinkForm.xaml">
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Update="View\VaultCreationForm.xaml">
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Update="VaultPage.xaml">
+      <SubType>Designer</SubType>
+    </Page>
+    <None Update="MainWindow.xaml">
+      <SubType>Designer</SubType>
+    </None>
+    <None Update="Package.appxmanifest">
+      <SubType>Designer</SubType>
+    </None>
+  </ItemGroup>
+</Project>

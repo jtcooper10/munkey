@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "MunkeyApp (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "MunkeyApp (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

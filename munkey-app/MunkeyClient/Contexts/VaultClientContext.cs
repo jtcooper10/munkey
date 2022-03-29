@@ -3,8 +3,9 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using MunkeyRpcClient;
 using Grpc.Core;
+using System.Runtime.CompilerServices;
 
-namespace MunkeyCli.Contexts
+namespace MunkeyClient.Contexts
 {
     public class VaultClientContext
     {
@@ -24,11 +25,6 @@ namespace MunkeyCli.Contexts
             return new VaultClientContext(
                 new Vault.VaultClient(channel),
                 new VaultNetwork.VaultNetworkClient(channel));
-        }
-
-        public AuthenticatedClientContext Authenticate()
-        {
-            return Authenticate(AuthenticationContext.PromptPassword());
         }
 
         public AuthenticatedClientContext Authenticate(string password)
@@ -59,7 +55,7 @@ namespace MunkeyCli.Contexts
 
         public async Task VaultLink(string vaultName, string hostname, int portNum)
         {
-            var result = _network.LinkVault(new RemoteVaultLinkRequest
+            var result = await _network.LinkVaultAsync(new RemoteVaultLinkRequest
             {
                 Location = new()
                 {
@@ -70,36 +66,33 @@ namespace MunkeyCli.Contexts
             });
 
             if (result.Status != VaultStatus.Ok) {
-                Console.WriteLine($"Vault linking failed: {result.Message}");
-                return;
+                throw new ApplicationException(result.Message);
             }
-            
-            Console.WriteLine("Vault linking was successful");
+        }
+
+        public IAsyncEnumerable<(string, string, int)> ResolveVaults(string vaultName)
+        {
+            return ResolveVaults(vaultName, CancellationToken.None);
         }
         
-        public async Task ResolveVaults(string vaultName)
+        public async IAsyncEnumerable<(string, string, int)> ResolveVaults(string vaultName, [EnumeratorCancellation] CancellationToken cancel)
         {
             using var networkStream = _network.ResolveVault(new VaultRequest
             {
                 Name = vaultName,
             });
 
-            await foreach (var resolvedVault in networkStream.ResponseStream.ReadAllAsync())
+            await foreach (var resolvedVault in networkStream.ResponseStream.ReadAllAsync(cancel))
             {
-                if (!Int32.TryParse(resolvedVault.Location.Port, out var portNum))
+                if (!int.TryParse(resolvedVault.Location.Port, out var portNum))
                 {
                     continue;
                 }
-                
-                Console.Write($"Vault found ({resolvedVault.VaultName} @ {resolvedVault.Location.Host}:{portNum}), " + 
-                              "Link? [y/N] ");
-                if ((Console.ReadLine()?.ToLower() ?? "n") != "y")
-                    continue;
-                
-                await VaultLink(vaultName, resolvedVault.Location.Host, portNum);
+
+                yield return (resolvedVault.VaultName, resolvedVault.Location.Host, portNum);
+                if (cancel.IsCancellationRequested)
+                    yield break;
             }
-            
-            Console.WriteLine("No other vaults found.");
         }
     }
 }

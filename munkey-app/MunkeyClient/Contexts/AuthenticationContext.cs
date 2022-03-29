@@ -4,7 +4,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace MunkeyCli.Contexts
+namespace MunkeyClient.Contexts
 {
     public class AuthenticationContext
     {
@@ -18,29 +18,6 @@ namespace MunkeyCli.Contexts
         public AuthenticationContext(byte[] key)
         {
             this._key = key;
-        }
-        
-        public static AuthenticationContext PromptPassword()
-        {
-            string? password;
-            do {
-                Console.Write("Enter password: ");
-                password = Prompt();
-            } while (string.IsNullOrEmpty(password));
-            
-            return new AuthenticationContext(GenerateKey(password));
-        }
-
-        private static string? Prompt()
-        {
-            StringBuilder builder = new();
-            ConsoleKeyInfo key;
-            while ((key = Console.ReadKey(true)).Key != ConsoleKey.Enter) {
-                builder.Append(key.KeyChar);
-            }
-
-            Console.WriteLine();
-            return builder.ToString();
         }
 
         public byte[] Encrypt(string plaintextString, byte[] privateKey)

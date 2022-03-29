@@ -173,9 +173,16 @@ abstract class CommandServer {
                 }
                 let localVault = localVaultResult.unpack(this.services.vault.getVaultById(vaultId));
 
-                this.services.connection
-                    .publishDatabaseConnection({ hostname, portNum }, vaultName, vaultId, localVault.vault)
-                    .catch(err => console.error(err));
+                // The below Promise is used because the `VaultSyncToken` returned by PouchDB's library
+                // resolves only when the connection closes, NOT when the connection is established.
+                // Because of this, we have to manually respond to the initial replication
+                // in order to avoid a race condition with the user's first content fetch.
+                await new Promise<void>((resolve, reject) => {
+                    const onFirstPull = (success: boolean) => success ? resolve() : reject("Initial replication failed");
+                    this.services.connection
+                        .publishDatabaseConnection({ hostname, portNum }, vaultName, vaultId, localVault.vault, onFirstPull)
+                        .catch(err => reject(err));
+                }).catch(err => console.error(err));
             }
             catch (err) {
                 return fail(err?.message ?? null);

@@ -1,0 +1,94 @@
+﻿<Page
+    x:Class="MunkeyApp.VaultPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:app="using:MunkeyApp" xmlns:view="using:MunkeyApp.View"
+    mc:Ignorable="d"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+    <Page.Resources>
+        <app:SelectedEntryConverter x:Key="SelectedEntryConverter"/>
+        <app:SelectedEntryConverter x:Key="SelectedEntryInverter" Invert="True"/>
+    </Page.Resources>
+
+    <Grid RowSpacing="0">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <MenuBar Grid.Row="0">
+            <MenuBarItem Title="File">
+                <MenuFlyoutItem Text="New" Click="FileFlyoutNew_Click"/>
+                <MenuFlyoutItem Text="Open" Click="FileFlyoutOpen_Click"/>
+                <MenuFlyoutItem Text="Link Remote" Click="FileFlyoutLinkRemote_Click"/>
+                <MenuFlyoutItem Text="Close" Command="{x:Bind CloseVault}"/>
+            </MenuBarItem>
+            <MenuBarItem Title="Settings">
+                <MenuFlyoutItem Text="Database" Click="SettingsFlyoutService_Click"/>
+            </MenuBarItem>
+        </MenuBar>
+
+        <StackPanel Grid.Row="1" Visibility="{x:Bind PasswordCollection.IsActive, Converter={StaticResource SelectedEntryInverter}, Mode=OneWay}"
+                    Orientation="Vertical">
+            <TextBlock HorizontalAlignment="Center" Text="No Vault Selected" FontSize="40"/>
+            <TextBlock HorizontalAlignment="Center" Text="Use the File menu to create, open, or link to a new vault." FontSize="24"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="1" Visibility="{x:Bind PasswordCollection.IsActive, Converter={StaticResource SelectedEntryConverter}, Mode=OneWay}">
+            <StackPanel Orientation="Horizontal" Spacing="8" MaxWidth="640" Margin="0,0,0,16">
+                <TextBlock Text="Vault:" FontWeight="Bold"/>
+                <TextBlock Text="{x:Bind PasswordCollection.SelectedVaultName, Mode=OneWay}"/>
+            </StackPanel>
+            <ListView x:Name="VaultPageEntryList" MaxWidth="640" xmlns:model="using:MunkeyApp.Model"
+                      IsItemClickEnabled="True"
+                      ItemClick="VaultPageEntryList_ItemClick"
+                      ItemsSource="{x:Bind PasswordCollection.Items, Mode=OneWay}"
+                      SelectedItem="{x:Bind PasswordCollection.SelectedItem, Mode=TwoWay}">
+                <ListView.HeaderTemplate>
+                    <DataTemplate>
+                        <Grid MaxWidth="640">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="240"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Row="0" Grid.Column="0" BorderBrush="DarkGray" BorderThickness="0,0,0,1">
+                                <TextBlock Margin="5,0,0,0" Text="Entry Key"/>
+                            </Border>
+                            <Border Grid.Row="0" Grid.Column="1" BorderBrush="DarkGray" BorderThickness="0,0,0,1">
+                                <TextBlock Margin="5,0,0,0" Text="Password"/>
+                            </Border>
+                        </Grid>
+                    </DataTemplate>
+                </ListView.HeaderTemplate>
+                <ListView.ItemTemplate>
+                    <DataTemplate x:DataType="model:PasswordCollectionItem">
+                        <Grid MaxWidth="640">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="240"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center" Text="{x:Bind Path=EntryKey}"/>
+                            <TextBox Grid.Column="1"
+                                 Visibility="{Binding Path=IsVisible, Converter={StaticResource SelectedEntryConverter}, Mode=OneWay}"
+                                 IsReadOnly="True"
+                                 Text="{x:Bind Path=Password, Mode=OneWay}"/>
+                        </Grid>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+
+            <Border MaxWidth="640" BorderBrush="DarkGray" BorderThickness="0,1,0,0">
+                <StackPanel>
+                    <view:PasswordEntryForm OnSubmit="{x:Bind PasswordCollection.SetPassword}"/>
+                    <TextBlock Text="{x:Bind PasswordCollection.Message, Mode=OneWay}"/>
+                    <StackPanel Margin="0,8" Spacing="8" Orientation="Horizontal">
+                        <Button Content="Save" Command="{x:Bind PasswordCollection.SavePasswords}" ToolTipService.ToolTip="Commit password changes to the database"/>
+                        <Button Content="Pull" Command="{x:Bind PasswordCollection.PullPasswords}" ToolTipService.ToolTip="Check for changes from the network"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </Grid>
+</Page>

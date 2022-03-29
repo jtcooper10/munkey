@@ -4,8 +4,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
-using Grpc.Core;
-using MunkeyCli.Contexts;
+using MunkeyClient.Contexts;
 
 namespace MunkeyCli.Commands
 {
@@ -21,19 +20,20 @@ namespace MunkeyCli.Commands
 
         public async Task VaultNew(string name)
         {
-            AuthenticationContext context = AuthenticationContext.PromptPassword();
+            AuthenticationContext context = PromptPassword();
             try
             {
                 using ValidationContext validation = ValidationContext.Create();
                 byte[] initialData = context.Encrypt(INITIAL_DATA, validation.ExportPrivateKey());
                 initialData = validation.Wrap(initialData);
                 await _context.Authenticate(context).CreateVault(name, initialData, validation.ExportPublicKey());
+                Console.WriteLine("Vault created successfully");
             }
             catch (CryptographicException ex)
             {
-                Console.WriteLine("Failed to encrypt starting data: " + ex.Message);
+                Console.WriteLine($"Failed to encrypt starting data: {ex.Message}");
             }
-            catch (RpcException)
+            catch
             {
                 Console.WriteLine("Connection could not be established");
             }
@@ -43,15 +43,16 @@ namespace MunkeyCli.Commands
         {
             try
             {
-                await _context.Authenticate().GetVaultEntry(vaultName, entryKey);
+                await _context.Authenticate(PromptPassword()).GetVaultEntry(vaultName, entryKey);
             }
             catch (CryptographicException x)
             {
-                Console.WriteLine("The password provided is invalid: " + x.Message);
+                Console.WriteLine($"The password provided is invalid: {x.Message}");
             }
-            catch (RpcException)
+            catch (InvalidOperationException x)
             {
                 Console.WriteLine("Connection could not be established");
+                Console.Error.WriteLine($"Failed to get vault content: {x.Message}");
             }
         }
 
@@ -59,15 +60,16 @@ namespace MunkeyCli.Commands
         {
             try
             {
-                await _context.Authenticate().SetVaultEntry(vaultName, (entryKey, entryValue));
+                await _context.Authenticate(PromptPassword()).SetVaultEntry(vaultName, (entryKey, entryValue));
+                Console.WriteLine($"[{entryKey}] = {entryValue}");
             }
             catch (CryptographicException)
             {
                 Console.WriteLine("The password provided is invalid");
             }
-            catch (RpcException)
+            catch (InvalidOperationException x)
             {
-                Console.WriteLine("Connection could not be established");
+                Console.Error.WriteLine($"Failed to update vault content: {x.Message}");
             }
         }
 
@@ -80,7 +82,7 @@ namespace MunkeyCli.Commands
                     Console.WriteLine($"{name} = Vault[{id}]");
                 }
             }
-            catch (RpcException)
+            catch
             {
                 Console.WriteLine("Connection could not be established");
             }
@@ -90,7 +92,7 @@ namespace MunkeyCli.Commands
         {
             if (hostname == null)
             {
-                await _context.ResolveVaults(vaultName);
+                await VaultResolve(vaultName);
                 return;
             }
 
@@ -98,10 +100,11 @@ namespace MunkeyCli.Commands
             if (portNum == null)
             {
                 string[] hostPair = hostname.Split(":");
-                string portString = hostname.Split(":").Last();
-                if (!Int32.TryParse(portString, out validPortNum))
+                string portString = hostPair.Last();
+                if (!int.TryParse(portString, out validPortNum))
                 {
                     Console.WriteLine("Cannot resolve vault location; port number invalid or missing");
+                    return;
                 }
                 hostname = hostPair[0];
             }
@@ -109,11 +112,53 @@ namespace MunkeyCli.Commands
             try
             {
                 await _context.VaultLink(vaultName, hostname, validPortNum);
+                Console.WriteLine("Vault linking was successful");
             }
-            catch (RpcException)
+            catch (Exception ex)
             {
-                Console.WriteLine("Connection could not be established");
+                Console.WriteLine("Vault linking was not successful: " + ex.Message);
             }
+        }
+
+        public async Task VaultResolve(string vaultName)
+        {
+            await foreach (var (resolvedName, resolvedHost, resolvedPort) in _context.ResolveVaults(vaultName))
+            {
+                Console.Write($"Vault found ({resolvedName} @ {resolvedHost}:{resolvedPort}), " +
+                              "Link? [y/N] ");
+                if ((Console.ReadLine()?.ToLower() ?? "n") != "y")
+                    continue;
+
+                await _context.VaultLink(resolvedName, resolvedHost, resolvedPort);
+                return;
+            }
+
+            Console.WriteLine("No other vaults found.");
+        }
+
+        private static string? Prompt()
+        {
+            StringBuilder builder = new();
+            ConsoleKeyInfo key;
+            while ((key = Console.ReadKey(true)).Key != ConsoleKey.Enter)
+            {
+                builder.Append(key.KeyChar);
+            }
+
+            Console.WriteLine();
+            return builder.ToString();
+        }
+
+        private static AuthenticationContext PromptPassword()
+        {
+            string? password;
+            do
+            {
+                Console.Write("Enter password: ");
+                password = Prompt();
+            } while (string.IsNullOrEmpty(password));
+
+            return new AuthenticationContext(AuthenticationContext.GenerateKey(password));
         }
     }
 }

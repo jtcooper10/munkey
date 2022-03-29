@@ -51,7 +51,14 @@ jobs:
     - name: Build & setup CLI app/tests
       run: |
         dotnet restore
-        dotnet build -c Release --no-restore
+        dotnet build -c Release --no-restore munkey-app/MunkeyClient
+        dotnet build -c Release --no-restore munkey-app/cli
+        dotnet build -c Release --no-restore munkey-app/MunkeyCliTest
+      # Below will not work until 6.0.300+ is released: see https://github.com/dotnet/msbuild/issues/7329
+      # Once available, replace above calls to `dotnet build` (GUI not available for automated testing until then!)
+      #  dotnet build -c Release --no-restore
     - name: Run .NET command-line app tests
       run: |
-        dotnet test -c Release --no-build
+        dotnet test -c Release --no-build munkey-app/MunkeyCliTest
+      # Same as above; this will not work until 6.0.300+ is released
+      # dotnet test -c Release --no-build
