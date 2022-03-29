@@ -18,8 +18,6 @@ using MunkeyApp.View;
 using MunkeyClient.Contexts;
 using Grpc.Net.Client;
 
-// To learn more about WinUI, the WinUI project structure,
-// and more about our project templates, see: http://aka.ms/winui-project-info.
 
 namespace MunkeyApp
 {
@@ -39,23 +37,18 @@ namespace MunkeyApp
             throw new NotImplementedException();
         }
     }
-    /// <summary>
-    /// An empty page that can be used on its own or navigated to within a Frame.
-    /// </summary>
+
     public sealed partial class VaultPage : Page
     {
         public VaultPage()
         {
             this.InitializeComponent();
-            _channel = GrpcChannel.ForAddress("http://localhost:5050", new GrpcChannelOptions
-            {
-                Credentials = Grpc.Core.ChannelCredentials.Insecure,
-            });
-            PasswordCollection = new PasswordCollectionViewModel(VaultClientContext.Create(_channel));
+            Network = new();
+            PasswordCollection = new PasswordCollectionViewModel(VaultClientContext.Create(Network.Channel));
         }
 
         private PasswordCollectionViewModel PasswordCollection { get; set; }
-
+        private NetworkModel Network { get; set; }
 
         private async void FileFlyoutNew_Click(object sender, RoutedEventArgs e)
         {
@@ -68,7 +61,7 @@ namespace MunkeyApp
                     Title = "New Vault",
                     Content = form,
                     XamlRoot = this.XamlRoot,
-                    CloseButtonText = "Cancel",
+                    CloseButtonText = "Done",
                 };
             }
             catch (Exception ex)
@@ -77,7 +70,7 @@ namespace MunkeyApp
                 {
                     Title = $"No Vault ({ex.GetType()})",
                     Content = ex.Message,
-                    CloseButtonText = "Ok",
+                    CloseButtonText = "Done",
                 };
             }
             await dialog.ShowAsync();
@@ -94,7 +87,7 @@ namespace MunkeyApp
                     Title = "Open Vault",
                     Content = form,
                     XamlRoot = this.XamlRoot,
-                    CloseButtonText = "Cancel",
+                    CloseButtonText = "Done",
                 };
             }
             catch (Exception ex)
@@ -103,7 +96,7 @@ namespace MunkeyApp
                 {
                     Title = $"No Vault ({ex.GetType()})",
                     Content = ex.Message,
-                    CloseButtonText = "Ok",
+                    CloseButtonText = "Done",
                 };
             }
             await dialog.ShowAsync();
@@ -117,17 +110,28 @@ namespace MunkeyApp
                     PasswordCollection.LinkRemoteClient,
                     PasswordCollection.ResolveRemoteClient),
                 XamlRoot = this.XamlRoot,
-                CloseButtonText = "Cancel",
+                CloseButtonText = "Done",
             }.ShowAsync();
         }
 
         private async void SettingsFlyoutService_Click(object sender, RoutedEventArgs e)
         {
+            var form = new DatabaseSettingsForm(
+                Network.RpcLocation.HostName,
+                Network.RpcLocation.Port,
+                (host, port) =>
+                {
+                    Network.SetChannel(host, port);
+                    PasswordCollection.Context = VaultClientContext.Create(Network.Channel);
+                });
             await new ContentDialog()
             {
-                Title = "Not Implemented",
-                Content = "This control has not yet been implemented",
-                CloseButtonText = "Ok",
+                Title = "Database Service Settings",
+                Content = form,
+                IsPrimaryButtonEnabled = true,
+                PrimaryButtonText = "Update",
+                PrimaryButtonCommand = form.Submit,
+                CloseButtonText = "Cancel",
                 XamlRoot = this.XamlRoot,
             }.ShowAsync();
         }
@@ -137,15 +141,8 @@ namespace MunkeyApp
             ListView list = sender as ListView;
             ListViewItem listItem = list.ContainerFromItem(e.ClickedItem) as ListViewItem;
             
-            if (listItem.IsSelected)
-            {
-                PasswordCollectionItem item = e.ClickedItem as PasswordCollectionItem;
-                if (item != null)
-                    item.IsVisible = !item.IsVisible;
-            }
+            if (listItem.IsSelected && e.ClickedItem is PasswordCollectionItem item)
+                item.IsVisible = !item.IsVisible;
         }
-
-        private Grpc.Core.ChannelBase _channel;
-
     }
 }

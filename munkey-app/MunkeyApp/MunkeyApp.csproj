@@ -13,6 +13,7 @@
   </PropertyGroup>
   <ItemGroup>
     <None Remove="VaultPage.xaml" />
+    <None Remove="View\DatabaseSettingsForm.xaml" />
     <None Remove="View\PasswordEntryForm.xaml" />
     <None Remove="View\VaultCreationForm.xaml" />
     <None Remove="View\VaultLinkForm.xaml" />
@@ -32,6 +33,11 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\MunkeyClient\MunkeyClient.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Page Update="View\DatabaseSettingsForm.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
   </ItemGroup>
   <ItemGroup>
     <Page Update="View\PasswordEntryForm.xaml">

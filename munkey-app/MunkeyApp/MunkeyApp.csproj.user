@@ -5,6 +5,9 @@
     <None Update="App.xaml">
       <SubType>Designer</SubType>
     </None>
+    <Page Update="View\DatabaseSettingsForm.xaml">
+      <SubType>Designer</SubType>
+    </Page>
     <Page Update="View\PasswordEntryForm.xaml">
       <SubType>Designer</SubType>
     </Page>

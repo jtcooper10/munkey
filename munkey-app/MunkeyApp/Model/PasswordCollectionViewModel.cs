@@ -50,6 +50,11 @@ namespace MunkeyApp.Model
         public ICommand SetPassword { get; set; }
         public ICommand SavePasswords { get; set; }
         public ICommand PullPasswords { get; set; }
+        public VaultClientContext Context
+        {
+            get { return _remote; }
+            set { _remote = value; }
+        }
 
         public ObservableCollection<PasswordCollectionItem> Items
         {
