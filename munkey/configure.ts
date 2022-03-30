@@ -52,8 +52,16 @@ function configureRoutes(services: ServiceContainer, options?: ServerOptions): P
             vaults: await services.vault.getActiveVaultList(),
             activePeerList: services.activity.getDeviceList(),
         };
-
         response.json(identityResponse).end();
+    });
+
+    app.post("/link", async function(request, response) {
+        if (!request.body?.hasOwnProperty("uniqueId"))
+            return response.status(400);
+
+        let { uniqueId } = request.body;
+        await services.activity.restorePeer(uniqueId);
+        response.end();
     });
 
     if (pouch) {

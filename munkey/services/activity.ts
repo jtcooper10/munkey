@@ -78,10 +78,51 @@ export default class ActivityService extends Service {
                     }
                     reject(err);
                 });
+        }).catch(err => {
+            this.logger?.warn(err);
+            return null;
         });
 
         const parsedResponse = peerResponse && JSON.parse(peerResponse);
         return isPeerLinkResponse(parsedResponse) ? parsedResponse : null;
+    }
+
+    public async republish(uniqueId: string): Promise<void> {
+        for (let [location] of this.activePeerList) {
+            let [hostname, port] = location.split(":");
+            await new Promise((resolve, reject) => {
+                    let req = https.request({
+                        method: "POST",
+                        hostname,
+                        port,
+                        path: "/link",
+                        headers: {
+                            "Content-Type": "application/json",
+                        },
+                    }, res => {
+                        let buffer = [];
+                        res.on("data", data => buffer.push(data));
+                        res.on("close", () => resolve(Buffer.concat(buffer).toString()));
+                    });
+                    req.on("error", err => reject(err));
+                    req.end(JSON.stringify({ uniqueId }));
+                })
+                .catch(err => this.logger?.warn("Failed to republish", err));
+        }
+    }
+
+    public async restorePeer(uniqueId: string): Promise<void> {
+        for (let [location, device] of this.activePeerList) {
+            if (device.uniqueId !== uniqueId)
+                continue;
+            let [hostname, port] = location.split(":");
+            let portNum = parseInt(port);
+            await this.publishDevice({
+                hostname,
+                portNum,
+                uniqueId,
+            });
+        }
     }
 
     /**
@@ -118,12 +159,6 @@ export default class ActivityService extends Service {
         this.logger.info("Attempting to publish peer device %s:%d", device.hostname, device.portNum);
         return this.sendLinkRequest(device.hostname, device.portNum)
             .then(async decl => {
-                if (device.uniqueId && device.uniqueId === decl.uniqueId) {
-                    this.logger.info("Peer device at %s:%d matches own identity; discarding",
-                        device.hostname,
-                        device.portNum);
-                    return null;
-                }
                 this.logger.info("Published peer device %s:%d", device.hostname, device.portNum);
                 this.activePeerList.set(`${device.hostname}:${device.portNum}`, decl);
                 let { activePeerList = [] } = decl ?? {};
@@ -181,14 +216,14 @@ export default class ActivityService extends Service {
     public broadcast(uniqueId: string, portNum: number, servicePortNum: number): Promise<boolean> {
         return new Promise(resolve => {
             const broadcastService = this.mdnsSource.publish({
-                name: `Munkey Vault[${uniqueId}]`,
-                type: "http",
-                port: servicePortNum,
-                txt: {
-                    "__mkey_proto_validate__": "TRUE",
-                    "__mkey_proto_uuid__": uniqueId.toLowerCase(),
-                }
-            })
+                    name: `Munkey Vault[${uniqueId}]`,
+                    type: "http",
+                    port: servicePortNum,
+                    txt: {
+                        "__mkey_proto_validate__": "TRUE",
+                        "__mkey_proto_uuid__": uniqueId.toLowerCase(),
+                    }
+                })
                 .on("up", () => {
                     this.logger.info("Broadcast active on port %d", portNum);
                     this.useBroadcastService(broadcastService);
