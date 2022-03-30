@@ -40,9 +40,9 @@ export default class IdentityService extends Service {
                                  certPath: string = path.join(rootDir, "tls.crt")): Promise<TlsKeyPair>
     {
         return Promise.all([
-            IdentityService.loadKey(keyPath),
-            IdentityService.loadKey(certPath)
-        ])
+                IdentityService.loadKey(keyPath),
+                IdentityService.loadKey(certPath)
+            ])
             .then(([ key, cert ]) => ({ key, cert }));
     }
 
