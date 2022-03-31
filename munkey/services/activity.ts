@@ -159,6 +159,8 @@ export default class ActivityService extends Service {
         this.logger.info("Attempting to publish peer device %s:%d", device.hostname, device.portNum);
         return this.sendLinkRequest(device.hostname, device.portNum)
             .then(async decl => {
+                if (!decl)
+                    return null;
                 this.logger.info("Published peer device %s:%d", device.hostname, device.portNum);
                 this.activePeerList.set(`${device.hostname}:${device.portNum}`, decl);
                 let { activePeerList = [] } = decl ?? {};
