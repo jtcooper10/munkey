@@ -18,6 +18,8 @@ using MunkeyApp.View;
 using MunkeyClient.Contexts;
 using Grpc.Net.Client;
 using System.Windows.Input;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace MunkeyApp
 {
@@ -53,6 +55,8 @@ namespace MunkeyApp
         private NetworkModel Network { get; set; }
         private ICommand CloseVault { get; set; }
 
+        private static int _resetCount = 0;
+
         public class VaultCloseCommand : ICommand
         {
             private PasswordCollectionViewModel _view;
@@ -77,68 +81,54 @@ namespace MunkeyApp
             }
         }
 
-        private async void FileFlyoutNew_Click(object sender, RoutedEventArgs e)
+        private async Task ShowFlyout(ContentDialog dialog)
         {
-            ContentDialog dialog;
+            if (Interlocked.Increment(ref _resetCount) > 1)
+            {
+                Interlocked.Decrement(ref _resetCount);
+                return;
+            }
             try
             {
-                VaultCreationForm form = new(PasswordCollection.CreateClient);
-                dialog = new()
-                {
-                    Title = "New Vault",
-                    Content = form,
-                    XamlRoot = this.XamlRoot,
-                    CloseButtonText = "Done",
-                };
+                dialog.XamlRoot = XamlRoot;
+                await dialog.ShowAsync();
             }
-            catch (Exception ex)
+            finally
             {
-                dialog = new()
-                {
-                    Title = $"No Vault ({ex.GetType()})",
-                    Content = ex.Message,
-                    CloseButtonText = "Done",
-                };
+                Interlocked.Decrement(ref _resetCount);
             }
-            await dialog.ShowAsync();
+        }
+
+        private async void FileFlyoutNew_Click(object sender, RoutedEventArgs e)
+        {
+            await ShowFlyout(new ContentDialog
+            {
+                Title = "New Vault",
+                Content = new VaultCreationForm(PasswordCollection.CreateClient),
+                CloseButtonText = "Done",
+            });
         }
 
         private async void FileFlyoutOpen_Click(object sender, RoutedEventArgs e)
         {
-            ContentDialog dialog;
-            try
+            await ShowFlyout(new ContentDialog
             {
-                VaultCreationForm form = new(PasswordCollection.OpenClient);
-                dialog = new()
-                {
-                    Title = "Open Vault",
-                    Content = form,
-                    XamlRoot = this.XamlRoot,
-                    CloseButtonText = "Done",
-                };
-            }
-            catch (Exception ex)
-            {
-                dialog = new()
-                {
-                    Title = $"No Vault ({ex.GetType()})",
-                    Content = ex.Message,
-                    CloseButtonText = "Done",
-                };
-            }
-            await dialog.ShowAsync();
+                Title = "Open Vault",
+                Content = new VaultCreationForm(PasswordCollection.OpenClient),
+                XamlRoot = XamlRoot,
+                CloseButtonText = "Done",
+            });
         }
         private async void FileFlyoutLinkRemote_Click(object sender, RoutedEventArgs e)
         {
-            await new ContentDialog()
+            await ShowFlyout(new ContentDialog
             {
                 Title = "Link with Remote Vault",
                 Content = new VaultLinkForm(
                     PasswordCollection.LinkRemoteClient,
                     PasswordCollection.ResolveRemoteClient),
-                XamlRoot = this.XamlRoot,
-                CloseButtonText = "Done",
-            }.ShowAsync();
+                CloseButtonText = "Done"
+            });
         }
 
         private async void SettingsFlyoutService_Click(object sender, RoutedEventArgs e)
@@ -151,7 +141,7 @@ namespace MunkeyApp
                     Network.SetChannel(host, port);
                     PasswordCollection.Context = VaultClientContext.Create(Network.Channel);
                 });
-            await new ContentDialog()
+            await ShowFlyout(new ContentDialog
             {
                 Title = "Database Service Settings",
                 Content = form,
@@ -159,8 +149,7 @@ namespace MunkeyApp
                 PrimaryButtonText = "Update",
                 PrimaryButtonCommand = form.Submit,
                 CloseButtonText = "Cancel",
-                XamlRoot = this.XamlRoot,
-            }.ShowAsync();
+            });
         }
 
         private void VaultPageEntryList_ItemClick(object sender, ItemClickEventArgs e)
