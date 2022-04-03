@@ -1,4 +1,5 @@
 import path from "path";
+import fs from "fs";
 import express from "express";
 import PouchDB from "pouchdb";
 import usePouchDB from "express-pouchdb";
@@ -15,6 +16,11 @@ export interface ServerOptions {
     pouch?: PouchConstructor<DatabaseDocument>;
     discoveryPortNum?: number;
     rootPath?: string;
+}
+
+export function resolveSystemFolder() {
+    let rootEnv = process.platform === "win32" ? "APPDATA" : "HOME";
+    return path.join(process.env[rootEnv], "MunkeyService");
 }
 
 /**
@@ -38,6 +44,10 @@ function configureRoutes(services: ServiceContainer, options?: ServerOptions): P
         pouch = null,
         discoveryPortNum = null,
     } = options ?? {};
+    if (!fs.existsSync(rootPath)) {
+        fs.mkdirSync(rootPath, 0o600);
+    }
+
     const app = services.web.getApplication();
     const pouchOptions = !rootPath ? {}
         : { logPath: path.resolve(rootPath) + path.sep + "log.txt" };
