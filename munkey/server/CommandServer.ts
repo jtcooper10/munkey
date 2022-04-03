@@ -52,9 +52,15 @@ abstract class CommandServer {
                 return failItem({ message: vaultResult.message });
             }
 
-            return await vaultResult.data.initialize(initialData)
-                ? successItem(vaultId, { message: "Vault created successfully" })
-                : failItem({ message: "Failed to initialize vault" });
+            let x = await vaultResult.data.initialize(initialData);
+            if (!x)
+                return failItem({ message: "Failed to initialize vault" });
+            return await this.services.activity.republish(this.services.identity.getId())
+                .then(() => successItem<string, VaultStatus>(vaultId, { message: "Vault created successfully" }))
+                .catch(() => failItem<string, VaultStatus>({ message: "Failed to republish vault" }));
+            // return await vaultResult.data.initialize(initialData)
+            //     ? successItem(vaultId, { message: "Vault created successfully" })
+            //     : failItem({ message: "Failed to initialize vault" });
         }
         catch (err) {
             return failItem<string, VaultStatus>({

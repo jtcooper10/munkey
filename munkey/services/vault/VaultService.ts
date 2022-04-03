@@ -28,9 +28,9 @@ export default class VaultService extends Service {
         return this.vaultIdMap.has(vaultName);
     }
 
-    private loadVaultDb(vaultName: string): VaultDatabase {
+    private loadVaultDb(vaultName: string, vaultId: string): VaultDatabase {
         const vaultDb = this.vaultContext.load(vaultName);
-        return new VaultDatabase(vaultDb, this.vaultIdMap.get(vaultName), this.logger);
+        return new VaultDatabase(vaultDb, vaultId, this.logger);
     }
 
     private setVaultEntry(vaultName: string, vaultId: string, vault: VaultDatabase): VaultDatabase {
@@ -69,6 +69,7 @@ export default class VaultService extends Service {
 
         const vaultDb = this.vaultContext.create(vaultName); // fails if the database already exists on-disk
         const vault = new VaultDatabase(vaultDb, vaultId, this.logger);
+        this.adminService?.recordVaultCreation(vaultName, vaultId);
         return successItem(this.setVaultEntry(vaultName, vaultId, vault));
     }
 
@@ -136,7 +137,7 @@ export default class VaultService extends Service {
         }
 
         try {
-            const vault = this.loadVaultDb(vaultName);
+            const vault = this.loadVaultDb(vaultName, vaultId);
             this.setVaultEntry(vaultName, vaultId, vault);
             return successItem<VaultDatabase, VaultStatus>(vault);
         }

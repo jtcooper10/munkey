@@ -189,13 +189,24 @@ generateNewIdentity(commandLineArgs.root_dir)
                 }
                 
                 return new Promise(function(resolve, reject) {
-                    grpcServer.tryShutdown(err => {
-                        if (err) reject(err);
-                        resolve(services);
-                    });
+                    function shutdown() {
+                        grpcServer.tryShutdown(err => {
+                            if (err)
+                                reject(err);
+                            resolve(services);
+                        });
+                    }
+                    process.on("SIGINT", shutdown);
+                    process.on("SIGKILL", shutdown);
+                    process.on("SIGTERM", shutdown);
                 });
             });
     })
+    .then(() => {
+        console.info("Goodbye!");
+        process.exit(0);
+    })
     .catch(err => {
         console.error(err);
+        process.exit(1);
     });
