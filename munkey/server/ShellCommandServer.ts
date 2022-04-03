@@ -90,6 +90,10 @@ class ShellCommandServer extends CommandServer {
             console.error("Missing name for vault login");
             return Promise.resolve(null);
         }
+        if (!this.services.vault.getVaultByName(vaultName)) {
+            console.error(`Vault not found: ${vaultName}`);
+            return Promise.resolve(null);
+        }
 
         return Promise.resolve(stream => this.promptPasswordCreation(stream)
             .then(async cipher => {
@@ -199,6 +203,10 @@ class ShellCommandServer extends CommandServer {
         }
 
         const vault = this.services.vault.getVaultByName(this.activeVault?.name);
+        if (!vault) {
+            console.error("Current vault could not be resolved");
+            return Promise.resolve(null);
+        }
 
         return vault.getContent()
             .then(rawContent => {
@@ -286,6 +294,7 @@ class ShellCommandServer extends CommandServer {
                 console.error(`To try logging in again, use the command: vault login ${vaultName}`);
             }
             else {
+                this.activeVault = { name: vaultName, cipher };
                 console.info(`Vault link successful: ${vaultName}@${hostname}:${portNum}`);
             }
         });

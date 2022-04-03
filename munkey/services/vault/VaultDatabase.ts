@@ -8,6 +8,10 @@ export default class VaultDatabase {
     private readonly logger?: winston.Logger;
 
     constructor(vault: VaultDB, vaultId: string, logger?: winston.Logger) {
+        if (!vault)
+            throw new Error("new VaultDatabase(): argument `vault` is null");
+        if (!vaultId)
+            throw new Error("new VaultDatabase(): argument `vaultId` is null");
         this.vault = vault;
         this.vaultId = vaultId;
         this.logger = logger;
