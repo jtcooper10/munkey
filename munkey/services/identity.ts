@@ -1,5 +1,6 @@
 import path from "path";
-import { readFile } from "fs";
+import { pki } from "node-forge";
+import { readFile, mkdir } from "fs";
 import { randomUUID } from "crypto";
 
 import Service from "./baseService";
@@ -35,26 +36,27 @@ export default class IdentityService extends Service {
         return this.uniqueId;
     }
 
-    public static loadTlsKeyPair(rootDir: string,
-                                 keyPath: string = path.join(rootDir, "tls.key"),
-                                 certPath: string = path.join(rootDir, "tls.crt")): Promise<TlsKeyPair>
-    {
-        return Promise.all([
-                IdentityService.loadKey(keyPath),
-                IdentityService.loadKey(certPath)
-            ])
-            .then(([ key, cert ]) => ({ key, cert }));
-    }
+    private static rsaOptions: pki.rsa.GenerateKeyPairOptions = {
+        bits: 2048,
+    };
 
-    private static loadKey(keyPath: string): Promise<Buffer> {
-        return new Promise<Buffer>(function(resolve, reject) {
-            readFile(keyPath, (err, data: Buffer) => {
+    public static async loadTlsKeyPair(rootDir: string): Promise<TlsKeyPair> {
+        let { publicKey, privateKey } = await new Promise<pki.rsa.KeyPair>(function(resolve, reject) {
+            pki.rsa.generateKeyPair(IdentityService.rsaOptions, (err, keyPair) => {
                 if (err) reject(err);
-                else {
-                    resolve(data);
-                }
+                resolve(keyPair);
             });
         });
+
+        let cert = pki.createCertificate();
+        cert.publicKey = publicKey;
+        cert.sign(privateKey);
+        cert.validity.notAfter = new Date();
+        cert.validity.notAfter.setFullYear(2100); // temporary, until per-device identity model is implemented
+        return {
+            key: Buffer.from(pki.privateKeyToPem(privateKey)),
+            cert: Buffer.from(pki.certificateToPem(cert))
+        };
     }
 
     public getTlsKeyPair(): TlsKeyPair {
@@ -72,7 +74,7 @@ export default class IdentityService extends Service {
 async function generateNewIdentity(rootDir: string): Promise<{ uniqueId: string } & TlsKeyPair> {
     const keyPair = await IdentityService.loadTlsKeyPair(rootDir)
         .catch(err => {
-            console.error("Could not load TLS certificate:", err);
+            console.error("Could not load TLS certificate:", err.message);
             return { key: undefined, cert: undefined };
         });
 

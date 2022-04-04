@@ -34,6 +34,7 @@ import {
     configurePlugins,
     configureLogging,
     DatabasePluginAttachment,
+    resolveSystemFolder,
 } from "./configure";
 import { ShellCommandServer } from "./server";
 import {
@@ -82,8 +83,7 @@ const parseCommandLineArgs = function(argv: string[] = process.argv.slice(2)): C
     parser.add_argument("-r", "--root-dir", {
         help: "Root directory where all database and configuration files will be stored to and loaded from",
         action: PathResolver,
-        // TODO: on release, change this to something else (temp/home dir maybe?)
-        default: path.resolve("localhost"),
+        default: resolveSystemFolder(),
     });
     parser.add_argument("-p", "--port", {
         help: "Initial port number for the web server to listen on (can be reconfigured at runtime)",
