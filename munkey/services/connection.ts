@@ -93,6 +93,7 @@ export default class ConnectionService extends Service {
         }
         else {
             this.logger.warn("Cannot add remote connection to %s, already exists", connectionKey);
+            onFirstPull(false);
             return connectionMap.get(connectionKey);
         }
     }

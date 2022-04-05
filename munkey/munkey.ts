@@ -171,7 +171,7 @@ generateNewIdentity(commandLineArgs.root_dir)
         return Promise.resolve(configureLogging({
                 vault: new VaultService(localDbContext),
                 identity: new IdentityService(uniqueId, keyPair),
-                activity: new ActivityService(bonjour()),
+                activity: new ActivityService(bonjour(), uniqueId),
                 connection: new ConnectionService(),
                 web: new WebService(express()),
                 admin: new AdminService(new AdminDB("info")),

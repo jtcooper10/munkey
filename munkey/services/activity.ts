@@ -26,14 +26,10 @@ interface ActivityServiceContainer {
  */
 export default class ActivityService extends Service {
     private readonly activePeerList: Map<string, PeerIdentityDecl>;
-    private readonly discoveryPool: Map<string, DeviceDiscoveryDecl>;
-    private broadcastService: bonjour.Service;
 
-    constructor(private mdnsSource: bonjour.Bonjour) {
+    constructor(private mdnsSource: bonjour.Bonjour, private uniqueId: string) {
         super();
         this.activePeerList = new Map<string, PeerIdentityDecl>();
-        this.discoveryPool = new Map<string, DeviceDiscoveryDecl>();
-        this.broadcastService = null;
     }
 
     /**
@@ -161,6 +157,10 @@ export default class ActivityService extends Service {
             .then(async decl => {
                 if (!decl)
                     return null;
+                if (decl.uniqueId === this.uniqueId) {
+                    this.logger.info("Ignoring self-resolved peer device at %s:%d", device.hostname, device.portNum);
+                    return decl;
+                }
                 this.logger.info("Published peer device %s:%d", device.hostname, device.portNum);
                 this.activePeerList.set(`${device.hostname}:${device.portNum}`, decl);
                 let { activePeerList = [] } = decl ?? {};
@@ -217,7 +217,7 @@ export default class ActivityService extends Service {
 
     public broadcast(uniqueId: string, portNum: number, servicePortNum: number): Promise<boolean> {
         return new Promise(resolve => {
-            const broadcastService = this.mdnsSource.publish({
+            this.mdnsSource.publish({
                     name: `Munkey Vault[${uniqueId}]`,
                     type: "http",
                     port: servicePortNum,
@@ -228,7 +228,6 @@ export default class ActivityService extends Service {
                 })
                 .on("up", () => {
                     this.logger.info("Broadcast active on port %d", portNum);
-                    this.useBroadcastService(broadcastService);
                     resolve(true);
                 })
                 .on("down", () => {
@@ -239,10 +238,6 @@ export default class ActivityService extends Service {
                     resolve(false);
                 });
         });
-    }
-
-    public useBroadcastService(broadcastService: bonjour.Service) {
-        this.broadcastService = broadcastService;
     }
 
     public listen(services?: ActivityServiceContainer) {
