@@ -146,23 +146,6 @@ describe("Test vault creation on Vault service container", function() {
         expect(vault.getVaultByName(vaultName1)).to.equal(outVault, "Mapped vault names did not return the same vault");
     });
 
-    it("indicates a conflict on link() if the given nickname is already in use", async function() {
-        let create: sinon.SinonStub<any> = sandbox.stub().returns(database);
-        let vault = new VaultService({ create, load: () => database });
-
-        let vaultName = "test-vault";
-        let vaultId = "123-abc";
-
-        const result1 = vault.linkVault(vaultName, vaultId);
-        expect(result1.success).to.be.true;
-        expect(vault.getVaultByName(vaultName)).to.not.be.null;
-
-        create.resetHistory();
-        const result2 = vault.linkVault(vaultName, vaultId);
-        expect(result2.success, "Second vault link unexpectedly indicated success").to.be.false;
-        expect(create.called, "Vault creation called unexpectedly on second vault link").to.be.false;
-    });
-
     it("loads the database from disk on load()", async function() {
         let load: sinon.SinonStub<any> = sandbox.stub().returns(database);
         let create: sinon.SinonStub<any> = sandbox.stub().returns(database);
