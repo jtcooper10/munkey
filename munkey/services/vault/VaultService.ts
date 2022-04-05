@@ -90,13 +90,6 @@ export default class VaultService extends Service {
      * Indicates {@link VaultStatus.CONFLICT} if the given nickname already exists in-memory.
      */
     public linkVault(vaultName: string, vaultId: string): VaultOption<VaultDatabase> {
-        if (this.vaultIdMap.has(vaultName)) {
-            return failItem<VaultDatabase, VaultStatus>({
-                status: VaultStatus.CONFLICT,
-                message: `Vault name ${vaultName} is in use`,
-            });
-        }
-
         let vault: VaultDatabase | null = this.getVaultById(vaultId);
         if (vault === null) {
             return this.createVault(vaultName, vaultId);

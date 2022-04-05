@@ -261,9 +261,6 @@ class ShellCommandServer extends CommandServer {
             // There's still hope; try to resolve the vault name from the APL
             let vaultsFound: DeviceDiscoveryDecl[] = [];
             for (let [vaultId, device] of this.services.activity.resolveVaultName(vaultName)) {
-                if (vaultsFound.length === 0) {
-                    console.info("Potential vaults ahoy!");
-                }
                 console.info(`  * RemoteVault[${vaultId}]@${device.hostname}:${device.portNum}`);
                 vaultsFound.push(device);
             }
@@ -455,11 +452,11 @@ class ShellCommandServer extends CommandServer {
 
         commandInterface.prompt();
         await new Promise<void>(async (resolve, reject) => {
-            commandInterface
-                .on("line", commandParseHandler)
-                .on("pause", resolve)
-                .on("error", reject);
-        })
+                commandInterface
+                    .on("line", commandParseHandler)
+                    .on("pause", resolve)
+                    .on("error", reject);
+            })
             .catch(err => {
                 if (err) {
                     console.error("Error:", err);
