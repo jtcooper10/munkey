@@ -1,157 +1,142 @@
 # Munkey
-## A peer-to-peer cryptographic password manager
+## A peer-to-peer cryptographic password manager for Windows
 
-**Munkey** is a cryptographic password manager which allows local devices to sync automatically, no internet connection required!
+**Munkey** is an experimental cryptographic password manager which allows local devices to sync automatically, no internet connection required! It is a "hybrid" desktop- and network-based password manager (like [KeePass](https://keepass.info/)) with synchronization capabilities over a local area network.
 
-It is essentially a desktop password manager (like [KeePass](https://keepass.info/)) with the built-in reconciliation mechanisms of cloud-based password managers (like [BitWarden](https://bitwarden.com/)).
+Shared secrets (stored as simple key-values) are stored in an encrypted and write-protected distributed database, where linked devices can add or modify secrets. Any changes to these secrets are automatically synchronized with other devices on the local network, with the database contents being encrypted and digitally signed (both requiring the master password).
+
 With a locally-distributed password vault, you'll never have to worry about trusting a cloud-based provider to keep your vault information safe.
 
 _This is a senior capstone project by Josh C._
 
-## Munkey Shell
+---
 
-As of Munkey v0.0.1 (MVP), the Munkey Shell is the only interface implemented.
-This is subject to change as additional interfaces and services are added.
+**IMPORTANT NOTE:** ***Munkey* is a highly experimental and early-stage application, and as such is not recommended for use in production environments.** It is basically a contrived, academic exploration on the feasibility and limitations of peer-to-peer distribution for highly sensitive data. While I intend to continue work on this project in the future, it is likely that it will look very different on release.
 
-After following the instructions found in [Building from Source](#Building from Source), execute the `munkey.js` file found in `bin`:
+## How it Works
+
+*Munkey* consists of two separate programs: the *Munkey Service* and a few options for *Munkey Clients* (specifically, a *shell*, *desktop app*, and *command-line program*). In order to use Munkey, you'll need to run the *Service* in the background, at which point any of the clients can be used. **It is not recommended to run multiple instances of the Munkey Service on the same machine**.
+
+### Munkey Service
+The Munkey Service manages a copy of a distributed database, with each instance belonging to a particular device. If you have other devices active, you can "link" these two devices together. While both devices are running, they will share secrets automatically when changes are detected, with the contents being encrypted/validated, requiring a master password to access/modify.
+
+You can have any number of "Vaults," which are specific databases containing a particular list of secrets locked behind a master password. All of the devices which have linked to this Vault collectively form a "Vault Network," where changes to the underlying Vault are automatically replicated to all participants of the Vault Network.
+
+In order for these devices to find each other, multicast DNS packets (called "mDNS") are sent across the local network, allowing each device to "announce" its presence. If your device is interested in a particular vault and receives an mDNS notification that this vault of interest is available, then you will be able to link to this vault to participate in its Vault Network. Participating in a Vault Network requires the master password; without it, the contents of the Vault cannot be decrypted and changes to the database cannot be digitally signed, effectively restricting write access.
+
+### Munkey Client
+
+While the Munkey Service will handle the "magic" of the Vault Network (managing/validating changes, handling peer requests, etc.), you will need to use a local Munkey Client on the same machine in order to interact with it as a user. Currently, there are two options: a *desktop app* and a *command-line program*. Between these two, the *desktop app* is the recommended, primary interface.
+
+From a Munkey Client, you can decrypt, validate, read, and update the contents of a Vault database. When finished, you may "save" the changes made in the client, which submits the new Vault content to the service. The plaintext data stored in the database never leaves the client; even when submitting content to the Munkey Service, the contents are already encrypted and digitally signed.
+
+## How to Install
+
+Visit the [releases page](https://github.com/jtcooper10/munkey/releases) for installation instructions. The background service can be found in `MunkeyService.zip`, with the desktop
+
+# How to Use Clients
+
+There are two primary clients: the *desktop app* and *command-line program*.
+
+## Desktop App
+
+To create/open/link a new vault, use the `File` menu in the upper left. When you're finished with the current vault, use `File > Close`. If you invoked `munkey.exe` on a different port than the default, you may use the options in `Settings > Database` to change its location.
+
+Add or modify an entry using the key/value text boxes at the bottom, and click "Add" to add it to the database. **Until you click `Save`, your changes will not be available to other devices on the Vault Network.** In addition, if changes have been made to the Vault Network, then you'll need to click `Pull` to see those changes.
+
+## Command-Line
+
+The name of the command-line program is `MunkeyCli.exe`, and you can invoke `MunkeyCli.exe -h` to see full use notes. However, the main commands used are:
 
 ```shell
-$ node bin/munkey.js
+$ MunkeyCli.exe vault new <vault_name>
+$ MunkeyCli.exe vault set <vault_name> <key> <value>
+$ MunkeyCli.exe vault get <vault_name> <key>
+$ MunkeyCli.exe vault link <remote_vault_name>
 ```
 
-### Getting Started
+These work almost identically to their GUI counterparts, with changes automatically being reflected in the Munkey Service.
 
-To get started quickly, simply run:
+## Munkey Shell (simplest, but not recommended)
+
+This interface is primarily for debugging, but can be used if you're not interested in setting up a separate, dedicated client.
+
+To use the Munkey Shell, simply run the `munkey.exe` executable from the command line with the `--shell` flag (run `munkey.exe -h` for full usage options). You'll see a prompt, and can issue basic commands here.
 
 ```shell
-$ npm install
-$ npm start
+$ munkey.exe --shell
+(mkey) % 
 ```
 
-### Vaults
-
-A `Vault` is an individual database containing your encrypted passwords.
-You can create an arbitrary number of vaults, each given a locally unique name and a globally unique ID.
-
-On startup, you'll be greeted with the Munkey Shell interface.
-The name in parentheses is the name of the currently selected vault. At first, it will simply say "mkey,"
-indicating that we have no vaults available. We can use `vault list` at any time to see what vaults are available.
-
-Here's how to create a `Vault` named "Henry":
-
+ ### Example
+ 
+ First, create a vault:
 ```shell
-(mkey) % vault new Henry
+(mkey) % vault new MyFirstVault
 Enter a password:
-Creating new vault (Henry)
-(Henry) % vault list
-:: :: Active  Vaults :: ::
- * "Henry" = Vault[cfe4a83b-e333-4bae-8776-92954902abd4]
+Vault created with ID ....
+(MyFirstVault) % 
 ```
 
-The Munkey Shell will prompt you for a password. The contents of the database are encrypted using this password,
-which must be supplied each time the program is run.
-
-If, while logging into an existing database, you mistype your password, you may use the `vault login` command to fix it.
-Note that this does not reset the password of the database itself; if you forget your password, you're out of luck!
-
-### Vault Entries
-
-Next, we can insert new values into the database with `vault set`, and retrieve them with `vault get`.
-
+Set and get some values:
 ```shell
-(Henry) % vault set password hunter2
-Adding new vault entry to cfe4a83b-e333-4bae-8776-92954902abd4
-(Henry) % vault get password
-[password] = hunter2
+(MyFirstVault) % vault set my-school-password hunter2
+[my-school-password] = hunter2
+(MyFirstVault) % vault get my-school-password
+[my-school-password] = hunter2
 ```
 
-As of v0.0.1 (MVP), the database (while encrypted, both at rest and in transit) is only designed to store basic key-value pairs.
-In later versions, fully featured password profiles will be made available.
-
-### Vault Linking
-
-To manually connect your local vault to a remote one, use the `vault link` command.
-Supply the vault name (the nickname of the vault on the remote host), hostname, and port number.
-
+If you have another device somewhere on your local network, you can find and link to one of its vaults:
 ```shell
-(Henry) % vault link Steve@192.168.1.5:8000
-Enter a password:
-Connecting with vault Steve@192.168.1.5:8000
-
-# Optionally, give it a locally unique nickname with the `as` command!
-(Henry) % vault link Steve@192.168.1.5:8000 as NotSteve
+(MyFirstVault) % vault link SharedVault
+ * RemoteVault[....]@192.168.1.101:8000
+Enter a password: 
+Vault link successful: SharedVault@192.168.1.101:8000
+(SharedVault) % 
 ```
+A linked vault creates a local copy of that vault, and modifying your local copy will automatically replicate with other linked devices. These changes are also transitive; any other active devices will be replicated to, as well.
 
-Note that both devices must be publicly available on your local area network in order to link successfully.
+The primary command is `vault`, which allows you to create/modify vaults. Here are some of the commands you can use (arguments in angle brackets, optional syntax in square brackets):
 
-### Peer Discovery
-
-To automatically find other devices on your network, you can enable peer discovery by specifying a port
-using the `--discovery <port>` argument on startup.
-Once enabled, your device becomes discoverable by peers on the network and listens for other peers, as well.
-
-To see a list of known peers, use the `peer list` command.
-
+### List of Commands
 ```shell
-(Henry) % peer list
- Peer[f1e9b0cb-acc2-445b-89ca-eadf8fffc4eb]@192.168.1.5:8000
-        * "Steve": Vault[eaeec732-9620-45cc-b9b6-3eec5a166efd]
+# Create a new vault (name must belocally [not globally] unique)
+(mkey) % vault new <vault_name>
+# Login to an existing local vault (prompts for a password)
+(mkey) % vault login <vault_name>
+# Link to a discovered local vault on the network (or give a specific location, if known)
+(mkey) % vault link <remote_vault_name[@host:port]> [as <local_name>]
+# Show a list of all local and remote vaults
+(mkey) % vault list
+# Set or get a vault entry's value
+(mkey) % vault set <key> <value>
+(mkey) % vault get <key>
 ```
-
-Any discovered peers will be listed here, along with a list of vaults that are available from that peer.
-When a peer is known, you can actually link against their vaults by name:
-
-```shell
-(Henry) % vault link Steve
-  * RemoteVault[eaeec732-9620-45cc-b9b6-3eec5a166efd]@192.168.1.5:8000
-Enter a password:
-Connecting with vault Steve@192.168.1.5:8000
-```
-
-Notice that we don't need to specify a hostname and port, since our device has already discovered their location.
-
-While running, you may disable/enable peer networking at any time using the `link up`/`link down` commands.
-
-### Command-Line Arguments:
-
-Argument | Description | Default
--------  | ----------- | -------
--h/--help | View command-line arguments | N/A
--p/--port \<port\> | Port Number to run web services on | 8000
--d/--discovery \<port\> | Port Number to run discovery services on (if not specified, discovery is off) | Off
---in-memory | Use a temporary, in-memory database rather than on-disk | False
 
 ## Building From Source
 
-As of v0.0.1 (MVP), only one interface exists (the Munkey shell),
-and no worker services have been implemented.
-Until that changes, all source files can be found under the `munkey` directory. At that point,
-each interface, service, etc. will be given its own subproject under the `munkey` directory.
+There are three main directories of interest: `munkey`, `munkey-app`, and `lib`. The `munkey` directory contains the source code for the Munkey Service, while the `munkey-app` contains the CLI and GUI source code.
 
-### Dependencies
+### Requirements
+- Python 3 (build only)
+- Protocol Buffer Compiler (`protoc`)
+- Node.js v16+
+- NPM v7+
+- .NET 6
 
-To build/run the Munkey shell from source, you will need the following dependencies on your machine:
+### Building the Munkey RPC Library
 
-* Node.js 15+ LTS
-* NPM v7+
+Both the background service and clients require the RPC library, which is a shared Protobuf/gRPC library.
 
-### Build 
+1. Enter the `lib/munkey-rpc` directory.
+2. Run `npm run build`.
 
-To build and run the application:
+### Building the Munkey Service
 
-```shell
-# Install Node.js dependencies
-$ npm install
-
-# Build + run
-$ npm start
-```
+1. Enter the `munkey` directory.
+2. Install the RPC library with `npm install --save ../lib/munkey-rpc/munkey-munkey-rpc-0.0.1.tgz`
+  - This is only required because installing a `.tgz` dependency requires an integrity check against a SHA1 hash, which changes each time the library is compiled.
+3. Compile the service with `npm run build`
+4. Run the program using `npm run start`, or run `node bin\munkey.js`
 
 The output files and executables can be found under `munkey/bin`.
-
-Alternatively, to build and run the application in separate steps, after installing dependencies:
-
-```shell
-$ npm run build
-$ node munkey/bin/munkey.js
-```
